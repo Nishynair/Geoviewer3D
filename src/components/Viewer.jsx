@@ -7,8 +7,9 @@ export default function Viewer3D({
 }) {
   const containerRef = useRef(null);
   const viewerRef = useRef(null);
-  const [isRotating, setIsRotating] = useState(true);
+  const [isRotating, setIsRotating] = useState(false);
   const [rotationData, setRotationData] = useState(null);
+  const [isFlying, setIsFlying] = useState(null);
 
   useEffect(() => {
     Cesium.Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_TOKEN;
@@ -29,6 +30,8 @@ export default function Viewer3D({
       shadows: false,
     });
     viewer.scene.globe.enableLighting = true;
+    viewer.scene.screenSpaceCameraController.minimumZoomDistance = 10.0;
+    viewer.scene.screenSpaceCameraController.maximumZoomDistance = 1000.0;
     viewerRef.current = viewer;
 
     // Add OSM Buildings
@@ -65,32 +68,118 @@ export default function Viewer3D({
         markerColor: Cesium.Color.RED, // for point features
       }).then((ds) => {
         viewer.dataSources.add(ds);
-        viewer.flyTo(ds).then(() => {
-          // Compute bounding sphere center & radius
-          const positions = [];
-          const time = Cesium.JulianDate.now();
-          ds.entities.values.forEach((entity) => {
-            if (entity.position) {
-              positions.push(entity.position.getValue(time));
-            } else if (entity.polygon) {
-              const hierarchy = entity.polygon.hierarchy.getValue(time);
-              positions.push(...hierarchy.positions);
-            } else if (entity.polyline) {
-              const pts = entity.polyline.positions.getValue(time);
-              positions.push(...pts);
-            }
-          });
 
-          const boundingSphere = Cesium.BoundingSphere.fromPoints(positions);
-          setRotationData({
-            center: boundingSphere.center,
-            radius: boundingSphere.radius * 2.0,
-          });
+        // Compute bounding sphere center & radius
+        const positions = [];
+        const time = Cesium.JulianDate.now();
+        ds.entities.values.forEach((entity) => {
+          if (entity.position) {
+            positions.push(entity.position.getValue(time));
+          } else if (entity.polygon) {
+            const hierarchy = entity.polygon.hierarchy.getValue(time);
+            positions.push(...hierarchy.positions);
+          } else if (entity.polyline) {
+            const pts = entity.polyline.positions.getValue(time);
+            positions.push(...pts);
+          }
         });
+        	
+        if (positions.length === 0) return;
+
+        const boundingSphere = Cesium.BoundingSphere.fromPoints(positions);
+        setRotationData({
+          center: boundingSphere.center,
+          radius: boundingSphere.radius * 1.5,
+        });
+
+        const carto = Cesium.Cartographic.fromCartesian(boundingSphere.center);
+        const destination = Cesium.Cartesian3.fromRadians(
+          carto.longitude,
+          carto.latitude,
+          boundingSphere.radius * 2
+        );
+        console.log(destination)
+
+        setIsFlying(true)
+        return viewer.camera.flyTo({
+          destination,
+          complete:()=>setIsFlying(false), 
+          duration:0
+        })
       });
     }
     
   }, [geojson]);
+
+  useEffect(() => {
+    if(viewerRef?.current && rotationData?.center && !isFlying){
+      const viewer = viewerRef.current;
+
+      const scene = viewer.scene;
+      const camera = scene.camera;
+      const canvas = viewer.canvas;
+
+      // Disable Cesium default interactions
+      const controller = scene.screenSpaceCameraController;
+      controller.enableRotate = false;
+      controller.enableTranslate = false;
+      controller.enableZoom = true;
+      controller.enableTilt = false;
+      controller.enableLook = false;
+
+      // Compute initial offset (distance, heading, pitch) 	
+      const target = rotationData.center;
+      let heading = 0.0;
+      let pitch = -Cesium.Math.toRadians(30);
+      let currentRange = Cesium.Cartesian3.distance(camera.position, target);
+      let lastX, lastY;
+      let isOrbiting = false;
+      
+      
+      camera.lookAt(target, new Cesium.HeadingPitchRange(heading, pitch, currentRange));
+
+      const handler = new Cesium.ScreenSpaceEventHandler(canvas);
+
+      handler.setInputAction((movement) => {
+        isOrbiting = true;
+        lastX = movement.position.x;
+        lastY = movement.position.y;
+      }, Cesium.ScreenSpaceEventType.LEFT_DOWN);
+
+      handler.setInputAction(() => {
+        isOrbiting = false;
+      }, Cesium.ScreenSpaceEventType.LEFT_UP);
+
+      handler.setInputAction((movement) => {
+        if (!isOrbiting) return;
+
+        const deltaX = movement.endPosition.x - lastX;
+        const deltaY = movement.endPosition.y - lastY;
+
+        lastX = movement.endPosition.x;
+        lastY = movement.endPosition.y;
+
+        const sensitivity = 0.005;
+
+        // Inverted drag for natural orbit
+        heading += deltaX * sensitivity;
+        pitch -= deltaY * sensitivity;
+
+        pitch = Cesium.Math.clamp(
+          pitch,
+          -Cesium.Math.toRadians(89),
+          -Cesium.Math.toRadians(5)
+        );
+
+        camera.lookAt(target, new Cesium.HeadingPitchRange(heading, pitch, currentRange));
+      }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+
+      return () => {
+        handler.destroy();
+        camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+      };
+    }
+  }, [rotationData, isFlying]);
 
   // Orbit logic
   useEffect(() => {
