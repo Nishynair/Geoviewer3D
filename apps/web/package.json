@@ -1,0 +1,35 @@
+{
+  "name": "@geoviewer3d/web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mapbox/geojsonhint": "^3.3.0",
+    "@monaco-editor/react": "^4.7.0",
+    "@mui/icons-material": "^7.3.1",
+    "@mui/material": "^7.3.1",
+    "@placemarkio/check-geojson": "^0.1.14",
+    "@turf/center": "^7.2.0",
+    "@turf/invariant": "^7.2.0",
+    "3d-tiles-renderer": "^0.4.14",
+    "cesium": "^1.132.0",
+    "proj4": "^2.19.10",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "three": "^0.179.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^5.0.0",
+    "vite": "^7.1.2",
+    "vite-plugin-cesium": "^1.2.23"
+  }
+}
