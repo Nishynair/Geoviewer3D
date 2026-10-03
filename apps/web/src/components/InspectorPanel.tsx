@@ -1,9 +1,19 @@
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import Table from '@mui/material/Table';
+import TableBody from '@mui/material/TableBody';
+import TableCell from '@mui/material/TableCell';
+import TableHead from '@mui/material/TableHead';
+import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
-import { inspectGeoJSON, type Diagnostic } from 'spatial-doctor';
-import type { GeoJSON as GeoJsonValue } from 'geojson';
+import {
+  inspectGeoJSON,
+  measureGeoJSONGeometry,
+  type Diagnostic,
+  type DistanceSummary,
+} from 'spatial-doctor';
+import type { Geometry, GeoJSON as GeoJsonValue } from 'geojson';
 import type { SpatialDocument } from '../spatialDocument';
 import {
   hasDiagnosticFeatureReference,
@@ -36,6 +46,123 @@ function Metric({ label, value }: { label: string; value: string | number }) {
       <Typography component="dd" variant="body2" sx={{ m: 0, mt: 0.25, overflowWrap: 'anywhere' }}>
         {value}
       </Typography>
+    </Box>
+  );
+}
+
+function formatDistance(distance: DistanceSummary): string {
+  if (distance.totalSegments === 0) return 'No line segments to measure';
+  if (distance.meters === null) {
+    return `Unavailable (${distance.measuredSegments} of ${distance.totalSegments} segments measured)`;
+  }
+  if (!distance.complete) {
+    return `Partial: ${distance.meters.toFixed(1)} m (${distance.measuredSegments} of ${distance.totalSegments} segments); not a complete total`;
+  }
+  return `${distance.meters.toFixed(1)} m`;
+}
+
+function SelectedGeometryMeasurements({ geometry }: { geometry: Geometry | null }) {
+  if (geometry === null) return null;
+  const measurement = measureGeoJSONGeometry(geometry);
+  if (!measurement) return null;
+
+  return (
+    <Box component="section" aria-labelledby="selected-geometry-measurements-heading" sx={{ mt: 1.5 }}>
+      <Typography id="selected-geometry-measurements-heading" component="h4" variant="subtitle1">
+        Elevation and line measurements
+      </Typography>
+      <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 0.5 }}>
+        Horizontal lengths use a spherical longitude/latitude approximation in meters. Z values use the third ordinate as meters for arithmetic only; no vertical datum is inferred or converted.
+      </Typography>
+      <Box component="dl" sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', columnGap: 2, m: 0 }}>
+        <Metric
+          label="Z statistics (m, third ordinate)"
+          value={measurement.zStatistics.measuredCoordinates === 0
+            ? 'No Z values'
+            : `Min ${measurement.zStatistics.minimum}; max ${measurement.zStatistics.maximum}; mean ${measurement.zStatistics.mean?.toFixed(2)} (${measurement.zStatistics.measuredCoordinates} present, ${measurement.zStatistics.missingCoordinates} missing)`}
+        />
+        <Metric
+          label="2D line length"
+          value={measurement.lineProfiles.length === 0
+            ? 'Not applicable to this geometry'
+            : formatDistance(measurement.horizontalLength)}
+        />
+        <Metric
+          label="3D line length"
+          value={measurement.lineProfiles.length === 0
+            ? 'Not applicable to this geometry'
+            : formatDistance(measurement.threeDimensionalLength)}
+        />
+      </Box>
+
+      <Typography component="h5" variant="body2" sx={{ mt: 1.5, fontWeight: 600 }}>
+        Per-coordinate Z values
+      </Typography>
+      {measurement.coordinateZ.length === 0 ? (
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+          No coordinate tuples.
+        </Typography>
+      ) : (
+        <Box component="ul" aria-label="Per-coordinate Z values" sx={{ listStyle: 'none', p: 0, m: 0, mt: 0.5, maxHeight: 180, overflowY: 'auto' }}>
+          {measurement.coordinateZ.map(({ path, z }, index) => (
+            <Box component="li" key={`${path.join('.')}-${index}`} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.25 }}>
+              <Typography variant="body2">Coordinate {index + 1} · path {path.length > 0 ? path.map((part) => part + 1).join('.') : 'point'}</Typography>
+              <Typography variant="body2" color="text.secondary">{z === null ? 'No Z (XY)' : `${z} m`}</Typography>
+            </Box>
+          ))}
+        </Box>
+      )}
+
+      <Typography component="h5" variant="body2" sx={{ mt: 1.5, fontWeight: 600 }}>
+        Elevation profile
+      </Typography>
+      {measurement.lineProfiles.length === 0 ? (
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+          No supported LineString components; line length and elevation profile are unavailable.
+        </Typography>
+      ) : (
+        measurement.lineProfiles.map((line, lineIndex) => (
+          <Box component="section" key={line.path.join('.') || 'root-line'} sx={{ mt: 1 }}>
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+              Line component {lineIndex + 1}{line.path.length > 0 ? ` · path ${line.path.map((part) => part + 1).join('.')}` : ''}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" component="p" sx={{ my: 0.5 }}>
+              2D length: {formatDistance(line.horizontalLength)} · 3D length: {formatDistance(line.threeDimensionalLength)}
+            </Typography>
+            <Table size="small" aria-label={`Line component ${lineIndex + 1} elevation profile`}>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Vertex</TableCell>
+                  <TableCell>Distance along line</TableCell>
+                  <TableCell>Z</TableCell>
+                  <TableCell>Next segment grade</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {line.coordinates.map((coordinate) => {
+                  const nextSegment = line.segments[coordinate.coordinateIndex];
+                  const grade = nextSegment?.gradePercent;
+                  const gradeLabel = grade === undefined || grade === null
+                    ? nextSegment?.horizontalMeters === 0
+                      ? 'Unavailable (zero run)'
+                      : nextSegment?.verticalChangeMeters === null
+                        ? 'Unavailable (missing Z)'
+                        : 'Unavailable'
+                    : `${grade.toFixed(2)}%`;
+                  return (
+                    <TableRow key={coordinate.coordinateIndex}>
+                      <TableCell>{coordinate.coordinateIndex + 1}</TableCell>
+                      <TableCell>{coordinate.distanceAlongMeters === null ? 'Unavailable' : `${coordinate.distanceAlongMeters.toFixed(1)} m`}</TableCell>
+                      <TableCell>{coordinate.z === null ? 'No Z' : `${coordinate.z} m`}</TableCell>
+                      <TableCell>{nextSegment ? gradeLabel : '—'}</TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </Box>
+        ))
+      )}
     </Box>
   );
 }
@@ -96,6 +223,7 @@ function SelectedFeatureDetails({
           </>
         )}
       </Box>
+      <SelectedGeometryMeasurements geometry={feature.geometry} />
       {geometryEntries.length > 0 && (
         <Box component="ul" aria-label="Selected feature geometry counts" sx={{ listStyle: 'none', p: 0, m: 0, mt: 1 }}>
           {geometryEntries.map(([geometry, count]) => (

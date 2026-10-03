@@ -30,6 +30,36 @@ reports its numeric minimum and maximum without assigning altitude semantics.
 Empty coordinate sets have `bounds: null` and `zRange: null`; a dataset with XY
 coordinates has `zRange: null`.
 
+## Selected geometry measurements
+
+`measureGeoJSONGeometry(geometry)` validates and measures one parsed GeoJSON
+Geometry. It returns `null` for invalid input or for a Feature/FeatureCollection
+root. `coordinateZ` lists the third ordinate for every coordinate in the
+geometry; each `path` is a zero-based index path through coordinate arrays and
+`GeometryCollection.geometries`. Repeated polygon closing tuples remain in the
+list and in `zStatistics`. Z statistics contain minimum, maximum, and mean of
+present third ordinates plus the number present and missing. When no coordinate
+has Z, the statistics are `null` and the counts remain explicit.
+
+Line profiles are available for `LineString` and `MultiLineString` components,
+including lines nested in GeometryCollections. Each component is measured
+independently; no segment joins separate MultiLineString or collection members.
+Profiles retain each coordinate's Z and cumulative horizontal distance from the
+component start. Segment grade percent is calculated as
+`100 * (next Z - current Z) / horizontal distance`; it is unavailable when
+either Z is missing, the horizontal distance is zero, or the horizontal
+coordinates cannot be measured.
+
+Horizontal distance is a spherical longitude/latitude approximation using a
+6,371,008.8 m radius, and is only computed for finite longitude/latitude values
+within `[-180, 180]` and `[-90, 90]`. It is not an ellipsoidal geodesic. Z is
+treated as meters for arithmetic under the GeoJSON third-ordinate convention;
+the package performs no vertical datum inference or conversion. A 3D segment is
+measured only when both endpoint Z values and horizontal distance are available.
+Distance summaries give measured and total segment counts; a partial sum is
+never presented as a complete length, and no 3D distance is reported as zero
+when no segment has two Z values.
+
 ## Diagnostic navigation references
 
 Diagnostics may carry a `featureId`, a zero-based `featureIndex` into a

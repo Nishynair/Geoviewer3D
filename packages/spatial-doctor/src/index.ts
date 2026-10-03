@@ -21,8 +21,76 @@ type GeoJSONGeometry = Exclude<
   ValidatedGeoJSON,
   { type: 'Feature' | 'FeatureCollection' }
 >;
-type GeometryType = GeoJSONGeometry['type'];
+export type GeometryType = GeoJSONGeometry['type'];
 type JsonObject = Record<string, unknown>;
+
+type Position = [number, number, ...number[]];
+type MeasurementGeometry =
+  | { type: 'Point'; coordinates: Position }
+  | { type: 'MultiPoint'; coordinates: Position[] }
+  | { type: 'LineString'; coordinates: Position[] }
+  | { type: 'MultiLineString'; coordinates: Position[][] }
+  | { type: 'Polygon'; coordinates: Position[][] }
+  | { type: 'MultiPolygon'; coordinates: Position[][][] }
+  | { type: 'GeometryCollection'; geometries: MeasurementGeometry[] };
+
+export interface CoordinateZValue {
+  /** Index path through coordinate arrays and GeometryCollection.geometries. */
+  path: number[];
+  z: number | null;
+}
+
+export interface DistanceSummary {
+  /** Sum of measured segments, or null when no segment could be measured. */
+  meters: number | null;
+  measuredSegments: number;
+  totalSegments: number;
+  complete: boolean;
+}
+
+export interface LineSegmentMeasurement {
+  horizontalMeters: number | null;
+  verticalChangeMeters: number | null;
+  distance3DMeters: number | null;
+  gradePercent: number | null;
+}
+
+export interface LineProfileCoordinate {
+  coordinateIndex: number;
+  x: number;
+  y: number;
+  z: number | null;
+  distanceAlongMeters: number | null;
+}
+
+export interface LineProfile {
+  /** GeometryCollection child and MultiLineString component indexes. */
+  path: number[];
+  coordinates: LineProfileCoordinate[];
+  segments: LineSegmentMeasurement[];
+  horizontalLength: DistanceSummary;
+  threeDimensionalLength: DistanceSummary;
+}
+
+export interface ZStatistics {
+  minimum: number | null;
+  maximum: number | null;
+  mean: number | null;
+  measuredCoordinates: number;
+  missingCoordinates: number;
+}
+
+export interface GeometryMeasurementSummary {
+  geometryType: GeometryType;
+  coordinateCount: number;
+  dimensions: CoordinateDimensions;
+  zRange: ZRange | null;
+  zStatistics: ZStatistics;
+  coordinateZ: CoordinateZValue[];
+  lineProfiles: LineProfile[];
+  horizontalLength: DistanceSummary;
+  threeDimensionalLength: DistanceSummary;
+}
 
 export interface InspectionSummary {
   featureCount: number;
@@ -213,6 +281,257 @@ function summarizeCoordinates(input: ValidatedGeoJSON): CoordinateSummary {
     bounds: accumulator.bounds,
     zRange: accumulator.zRange,
   };
+}
+
+const SPHERICAL_EARTH_RADIUS_METERS = 6_371_008.8;
+
+function horizontalDistanceMeters(from: Position, to: Position): number | null {
+  const [fromLongitude, fromLatitude] = from;
+  const [toLongitude, toLatitude] = to;
+  if (
+    !Number.isFinite(fromLongitude) ||
+    !Number.isFinite(fromLatitude) ||
+    !Number.isFinite(toLongitude) ||
+    !Number.isFinite(toLatitude) ||
+    Math.abs(fromLongitude) > 180 ||
+    Math.abs(toLongitude) > 180 ||
+    Math.abs(fromLatitude) > 90 ||
+    Math.abs(toLatitude) > 90
+  ) {
+    return null;
+  }
+
+  const radians = Math.PI / 180;
+  const latitudeDelta = (toLatitude - fromLatitude) * radians;
+  const longitudeDelta = (toLongitude - fromLongitude) * radians;
+  const haversine =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(fromLatitude * radians) *
+      Math.cos(toLatitude * radians) *
+      Math.sin(longitudeDelta / 2) ** 2;
+  const centralAngle = 2 * Math.asin(Math.min(1, Math.sqrt(haversine)));
+  return SPHERICAL_EARTH_RADIUS_METERS * centralAngle;
+}
+
+function distanceSummary(values: Array<number | null>): DistanceSummary {
+  const measuredValues = values.filter((value): value is number => value !== null);
+  return {
+    meters:
+      measuredValues.length > 0
+        ? measuredValues.reduce((total, value) => total + value, 0)
+        : null,
+    measuredSegments: measuredValues.length,
+    totalSegments: values.length,
+    complete: measuredValues.length === values.length,
+  };
+}
+
+function lineProfile(path: number[], positions: Position[]): LineProfile {
+  const coordinates: LineProfileCoordinate[] = [];
+  const segments: LineSegmentMeasurement[] = [];
+  let distanceAlongMeters = 0;
+  const firstPosition = positions[0];
+  let distanceAlongIsAvailable =
+    firstPosition !== undefined && horizontalDistanceMeters(firstPosition, firstPosition) !== null;
+
+  positions.forEach((position, coordinateIndex) => {
+    const [x, y] = position;
+    const z = position[2] ?? null;
+    if (coordinateIndex > 0) {
+      const previous = positions[coordinateIndex - 1];
+      if (previous === undefined) {
+        distanceAlongIsAvailable = false;
+      } else {
+        const horizontalMeters = horizontalDistanceMeters(previous, position);
+        if (horizontalMeters === null) {
+          distanceAlongIsAvailable = false;
+        } else {
+          distanceAlongMeters += horizontalMeters;
+        }
+
+        const previousZ = previous[2] ?? null;
+        const verticalChangeMeters =
+          previousZ === null || z === null ? null : z - previousZ;
+        const distance3DMeters =
+          horizontalMeters === null || verticalChangeMeters === null
+            ? null
+            : Math.hypot(horizontalMeters, verticalChangeMeters);
+        segments.push({
+          horizontalMeters,
+          verticalChangeMeters,
+          distance3DMeters,
+          gradePercent:
+            horizontalMeters === null ||
+            horizontalMeters === 0 ||
+            verticalChangeMeters === null
+              ? null
+              : (verticalChangeMeters / horizontalMeters) * 100,
+        });
+      }
+    }
+
+    coordinates.push({
+      coordinateIndex,
+      x,
+      y,
+      z,
+      distanceAlongMeters: distanceAlongIsAvailable ? distanceAlongMeters : null,
+    });
+  });
+
+  return {
+    path,
+    coordinates,
+    segments,
+    horizontalLength: distanceSummary(segments.map((segment) => segment.horizontalMeters)),
+    threeDimensionalLength: distanceSummary(
+      segments.map((segment) => segment.distance3DMeters),
+    ),
+  };
+}
+
+function collectCoordinateZ(
+  geometry: MeasurementGeometry,
+  path: number[],
+  coordinateZ: CoordinateZValue[],
+): void {
+  const include = (position: Position, coordinatePath: number[]) => {
+    coordinateZ.push({ path: coordinatePath, z: position[2] ?? null });
+  };
+
+  switch (geometry.type) {
+    case 'Point':
+      include(geometry.coordinates, path);
+      return;
+    case 'MultiPoint':
+      geometry.coordinates.forEach((position, index) => include(position, [...path, index]));
+      return;
+    case 'LineString':
+      geometry.coordinates.forEach((position, index) => include(position, [...path, index]));
+      return;
+    case 'MultiLineString':
+      geometry.coordinates.forEach((line, lineIndex) =>
+        line.forEach((position, positionIndex) =>
+          include(position, [...path, lineIndex, positionIndex]),
+        ),
+      );
+      return;
+    case 'Polygon':
+      geometry.coordinates.forEach((ring, ringIndex) =>
+        ring.forEach((position, positionIndex) =>
+          include(position, [...path, ringIndex, positionIndex]),
+        ),
+      );
+      return;
+    case 'MultiPolygon':
+      geometry.coordinates.forEach((polygon, polygonIndex) =>
+        polygon.forEach((ring, ringIndex) =>
+          ring.forEach((position, positionIndex) =>
+            include(position, [...path, polygonIndex, ringIndex, positionIndex]),
+          ),
+        ),
+      );
+      return;
+    case 'GeometryCollection':
+      geometry.geometries.forEach((child, childIndex) =>
+        collectCoordinateZ(child, [...path, childIndex], coordinateZ),
+      );
+  }
+}
+
+function collectLineProfiles(
+  geometry: MeasurementGeometry,
+  path: number[],
+  profiles: LineProfile[],
+): void {
+  switch (geometry.type) {
+    case 'LineString':
+      profiles.push(lineProfile(path, geometry.coordinates));
+      return;
+    case 'MultiLineString':
+      geometry.coordinates.forEach((line, index) =>
+        profiles.push(lineProfile([...path, index], line)),
+      );
+      return;
+    case 'GeometryCollection':
+      geometry.geometries.forEach((child, childIndex) =>
+        collectLineProfiles(child, [...path, childIndex], profiles),
+      );
+  }
+}
+
+function isGeometryType(value: unknown): value is GeometryType {
+  return (
+    value === 'Point' ||
+    value === 'MultiPoint' ||
+    value === 'LineString' ||
+    value === 'MultiLineString' ||
+    value === 'Polygon' ||
+    value === 'MultiPolygon' ||
+    value === 'GeometryCollection'
+  );
+}
+
+/**
+ * Validates and measures a GeoJSON geometry, returning null for invalid input.
+ * Horizontal distances use a spherical lon/lat approximation; Z is used as a
+ * raw meter value for arithmetic only. No vertical datum conversion or
+ * inference is performed.
+ */
+export function measureGeoJSONGeometry(
+  input: unknown,
+): GeometryMeasurementSummary | null {
+  try {
+    const serializedInput = JSON.stringify(input);
+    if (typeof serializedInput !== 'string') return null;
+
+    const geometryTree: unknown = JSON.parse(serializedInput);
+    const validationTree: unknown = JSON.parse(serializedInput);
+    validateWithNestedCollections(validationTree);
+    if (!isObject(geometryTree) || !isGeometryType(geometryTree.type)) return null;
+
+    const geometry = geometryTree as unknown as MeasurementGeometry;
+    const coordinates = summarizeCoordinates(geometry as ValidatedGeoJSON);
+    const coordinateZ: CoordinateZValue[] = [];
+    const lineProfiles: LineProfile[] = [];
+    collectCoordinateZ(geometry, [], coordinateZ);
+    collectLineProfiles(geometry, [], lineProfiles);
+    const segments = lineProfiles.flatMap((line) => line.segments);
+    const zValues = coordinateZ.flatMap(({ z }) => (z === null ? [] : [z]));
+    let zMinimum: number | null = null;
+    let zMaximum: number | null = null;
+    for (const z of zValues) {
+      zMinimum = zMinimum === null ? z : Math.min(zMinimum, z);
+      zMaximum = zMaximum === null ? z : Math.max(zMaximum, z);
+    }
+
+    return {
+      geometryType: geometry.type,
+      coordinateCount: coordinates.coordinateCount,
+      dimensions: coordinates.dimensions,
+      zRange: coordinates.zRange,
+      zStatistics: {
+        minimum: zMinimum,
+        maximum: zMaximum,
+        mean:
+          zValues.length > 0
+            ? zValues.reduce((total, value) => total + value, 0) / zValues.length
+            : null,
+        measuredCoordinates: zValues.length,
+        missingCoordinates: coordinateZ.length - zValues.length,
+      },
+      coordinateZ,
+      lineProfiles,
+      horizontalLength: distanceSummary(
+        segments.map((segment) => segment.horizontalMeters),
+      ),
+      threeDimensionalLength: distanceSummary(
+        segments.map((segment) => segment.distance3DMeters),
+      ),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function isObject(value: unknown): value is JsonObject {
