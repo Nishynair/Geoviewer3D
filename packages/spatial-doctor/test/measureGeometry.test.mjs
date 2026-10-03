@@ -26,9 +26,9 @@ test('reports ordered Z profile and 2D, 3D, and segment grade for a complete lin
 
   assert.ok(result);
   assert.deepEqual(result.coordinateZ, [
-    { path: [0], z: 0 },
-    { path: [1], z: 10 },
-    { path: [2], z: 20 },
+    { path: [0], longitude: 0, latitude: 0, z: 0 },
+    { path: [1], longitude: 0, latitude: 0.001, z: 10 },
+    { path: [2], longitude: 0, latitude: 0.002, z: 20 },
   ]);
   assert.equal(result.dimensions, 'XYZ');
   assert.equal(result.zRange?.min, 0);

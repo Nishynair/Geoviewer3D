@@ -11,20 +11,31 @@ import MenuBar from './components/MenuBar';
 import MinimizeMaximizeButton from './components/Buttons/MinimizeMaximizeButton';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
-import { inspectGeoJSON } from 'spatial-doctor';
+import { inspectGeoJSON, measureGeoJSONGeometry } from 'spatial-doctor';
 import type { Diagnostic } from 'spatial-doctor';
+import type { GeoJSON as GeoJsonValue } from 'geojson';
 import InspectorPanel from './components/InspectorPanel';
 import {
   createSpatialDocument,
   getGeoJSONForViewer,
   type SpatialDocument,
 } from './spatialDocument';
-import { resolveDiagnosticFeatureIndex } from './utils/diagnosticNavigation';
+import { getGeoJSONFeature, resolveDiagnosticFeatureIndex } from './utils/diagnosticNavigation';
 import { resolveDiagnosticSourceLocation } from './utils/featureSourceLocation';
 import {
   createFeatureSelectionController,
   type WorkspaceSelection,
 } from './utils/featureSelectionController';
+import type {
+  TerrainComparisonRequest,
+  TerrainComparisonResult,
+} from './utils/terrainComparison';
+
+interface TerrainComparisonDisplay {
+  geojson: GeoJsonValue;
+  featureIndex: number;
+  result: TerrainComparisonResult;
+}
 
 function App() {
   const [document, setDocument] = useState<SpatialDocument>(() =>
@@ -37,6 +48,8 @@ function App() {
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'));
   const [expanded, setExpanded] = useState(false);
   const [rightPanel, setRightPanel] = useState<'editor' | 'inspector'>('editor');
+  const [terrainRequest, setTerrainRequest] = useState<TerrainComparisonRequest | null>(null);
+  const [terrainResult, setTerrainResult] = useState<TerrainComparisonDisplay | null>(null);
   const activeSelection = selection?.document === document ? selection : null;
   const featureSelectionController = createFeatureSelectionController({
     getDocument: () => document,
@@ -70,10 +83,74 @@ function App() {
     featureSelectionController.selectFeatureFromMap(featureIndex);
   };
 
+  const handleCompareTerrain = () => {
+    if (
+      document.report?.valid !== true ||
+      document.parsed === null ||
+      !activeSelection ||
+      activeSelection.featureIndex === null
+    ) return;
+    const feature = getGeoJSONFeature(document.parsed, activeSelection.featureIndex);
+    const measurement = feature?.geometry === null || !feature?.geometry
+      ? null
+      : measureGeoJSONGeometry(feature.geometry);
+    selectionSequence.current += 1;
+    const request: TerrainComparisonRequest = {
+      requestId: selectionSequence.current,
+      geojson: document.parsed,
+      featureIndex: activeSelection.featureIndex,
+      coordinates: measurement?.coordinateZ.map(({ path, longitude, latitude, z }) => ({
+        path,
+        longitude,
+        latitude,
+        sourceZ: z,
+      })) ?? [],
+    };
+    setTerrainResult(null);
+    setTerrainRequest(request);
+  };
+
+  const handleTerrainComparisonResult = (
+    requestId: number,
+    result: TerrainComparisonResult,
+  ) => {
+    if (
+      !terrainRequest ||
+      terrainRequest.requestId !== requestId ||
+      terrainRequest.geojson !== document.parsed ||
+      terrainRequest.featureIndex !== activeSelection?.featureIndex
+    ) {
+      return;
+    }
+    setTerrainResult({
+      geojson: terrainRequest.geojson,
+      featureIndex: terrainRequest.featureIndex,
+      result,
+    });
+    setTerrainRequest(null);
+  };
+
   useEffect(() => {
     const timeout = window.setTimeout(() => setViewerDocument(document), 1000);
     return () => window.clearTimeout(timeout);
   }, [document]);
+
+  useEffect(() => {
+    setTerrainRequest(null);
+    setTerrainResult(null);
+  }, [document, activeSelection?.featureIndex]);
+
+  const terrainRequestForViewer = terrainRequest
+    && viewerDocument === document
+    && document.parsed === terrainRequest.geojson
+    && activeSelection?.featureIndex === terrainRequest.featureIndex
+    ? terrainRequest
+    : null;
+  const terrainResultForInspector = terrainResult
+    && terrainResult.geojson === document.parsed
+    && terrainResult.featureIndex === activeSelection?.featureIndex
+    ? terrainResult.result
+    : null;
 
   const handleTextChange = (rawText: string) => {
     setDocument((currentDocument) =>
@@ -141,6 +218,8 @@ function App() {
               ? activeSelection?.requestId ?? 0
               : 0}
             onFeatureSelect={viewerDocument === document ? handleFeatureSelect : undefined}
+            terrainComparisonRequest={terrainRequestForViewer}
+            onTerrainComparisonResult={handleTerrainComparisonResult}
             sx={{
               width: "100%",
               height: "100%",
@@ -199,6 +278,9 @@ function App() {
               onShowFeatureSource={() => featureSelectionController.showFeatureSource(activeSelection)}
               selectedFeatureIndex={activeSelection?.featureIndex ?? null}
               selectedFeatureHasSourceLocation={Boolean(activeSelection?.sourceLocation)}
+              onCompareTerrain={activeSelection ? handleCompareTerrain : undefined}
+              terrainComparisonPending={terrainRequestForViewer !== null}
+              terrainComparison={terrainResultForInspector}
             />
           </Box>
         </Box>

@@ -87,6 +87,29 @@ function renderSelectedGeometry(geometry: object): string {
   );
 }
 
+function renderTerrainComparison(
+  terrainComparison = null,
+  terrainComparisonPending = false,
+): string {
+  const document = createSpatialDocument(
+    'terrain.geojson',
+    JSON.stringify({
+      type: 'FeatureCollection',
+      features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [10, 20, 120] } }],
+    }),
+    inspectGeoJSON,
+  );
+  return renderToStaticMarkup(
+    <InspectorPanel
+      document={document}
+      selectedFeatureIndex={0}
+      onCompareTerrain={() => undefined}
+      terrainComparisonPending={terrainComparisonPending}
+      terrainComparison={terrainComparison}
+    />,
+  );
+}
+
 function textContent(markup: string): string {
   return markup
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/g, ' ')
@@ -291,5 +314,44 @@ describe('InspectorPanel', () => {
     expect(markup).toContain('40 m');
     expect(markup).toContain('Not applicable to this geometry');
     expect(markup).toContain('No supported LineString components; line length and elevation profile are unavailable.');
+  });
+
+  it('renders terrain comparison controls and reports raw Z minus sampled terrain', () => {
+    const markup = textContent(renderTerrainComparison({
+      status: 'complete',
+      totalCoordinates: 1,
+      coordinatesWithElevation: 1,
+      unavailableCoordinates: 0,
+      values: [{
+        path: [],
+        longitude: 10,
+        latitude: 20,
+        sourceZ: 120,
+        terrainHeight: 100,
+        difference: 20,
+      }],
+    }));
+
+    expect(markup).toContain('Compare with terrain');
+    expect(markup).toContain('compatible vertical references');
+    expect(markup).toContain('Complete comparison: 1 of 1 coordinates; 0 unavailable.');
+    expect(markup).toContain('Z 120 m · terrain 100.00 m · difference 20.00 m');
+  });
+
+  it('shows waiting and unavailable terrain states without implying ground height zero', () => {
+    const waiting = textContent(renderTerrainComparison(null, true));
+    const unavailable = textContent(renderTerrainComparison({
+      status: 'unavailable',
+      reason: 'no-terrain',
+      totalCoordinates: 1,
+      coordinatesWithElevation: 1,
+      unavailableCoordinates: 1,
+      values: [],
+    }));
+
+    expect(waiting).toContain('Sampling terrain…');
+    expect(waiting).toContain('Waiting for available terrain samples…');
+    expect(unavailable).toContain('Terrain data with tile availability is not ready, so no ground height was assumed.');
+    expect(unavailable).not.toContain('terrain 0.00 m');
   });
 });

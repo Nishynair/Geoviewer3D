@@ -21,6 +21,7 @@ import {
 } from '../utils/diagnosticNavigation';
 import { getGeoJSONFeature } from '../utils/diagnosticNavigation';
 import { resolveDiagnosticSourceLocation } from '../utils/featureSourceLocation';
+import type { TerrainComparisonResult } from '../utils/terrainComparison';
 
 interface InspectorPanelProps {
   document: SpatialDocument;
@@ -28,6 +29,9 @@ interface InspectorPanelProps {
   onShowFeatureSource?: () => void;
   selectedFeatureIndex?: number | null;
   selectedFeatureHasSourceLocation?: boolean;
+  onCompareTerrain?: () => void;
+  terrainComparisonPending?: boolean;
+  terrainComparison?: TerrainComparisonResult | null;
 }
 
 const DIAGNOSTIC_DEFINITIONS: Record<Diagnostic['code'], { title: string; message: string }> = {
@@ -179,12 +183,18 @@ function SelectedFeatureDetails({
   hasSourceLocation,
   onSelectDiagnostic,
   onShowFeatureSource,
+  onCompareTerrain,
+  terrainComparisonPending,
+  terrainComparison,
 }: {
   document: SpatialDocument;
   featureIndex: number;
   hasSourceLocation: boolean;
   onSelectDiagnostic?: (diagnostic: Diagnostic) => void;
   onShowFeatureSource?: () => void;
+  onCompareTerrain?: () => void;
+  terrainComparisonPending: boolean;
+  terrainComparison: TerrainComparisonResult | null;
 }) {
   if (document.report?.valid !== true || document.parsed === null) return null;
   const feature = getGeoJSONFeature(document.parsed, featureIndex);
@@ -230,6 +240,25 @@ function SelectedFeatureDetails({
         )}
       </Box>
       <SelectedGeometryMeasurements geometry={feature.geometry} />
+      {onCompareTerrain && (
+        <Box component="section" aria-labelledby="terrain-comparison-heading" sx={{ mt: 1.5 }}>
+          <Typography id="terrain-comparison-heading" component="h4" variant="subtitle1">
+            Terrain comparison
+          </Typography>
+          <Typography variant="caption" component="p" color="text.secondary" sx={{ mt: 0.25 }}>
+            Raw GeoJSON Z minus sampled terrain height. This is meaningful only when both heights use compatible vertical references; no conversion is applied.
+          </Typography>
+          <Button size="small" sx={{ mt: 0.5 }} onClick={onCompareTerrain} disabled={terrainComparisonPending}>
+            {terrainComparisonPending ? 'Sampling terrain…' : 'Compare with terrain'}
+          </Button>
+          {terrainComparisonPending && (
+            <Typography role="status" variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              Waiting for available terrain samples…
+            </Typography>
+          )}
+          {terrainComparison && <TerrainComparisonDetails result={terrainComparison} />}
+        </Box>
+      )}
       {geometryEntries.length > 0 && (
         <Box component="ul" aria-label="Selected feature geometry counts" sx={{ listStyle: 'none', p: 0, m: 0, mt: 1 }}>
           {geometryEntries.map(([geometry, count]) => (
@@ -265,6 +294,42 @@ function SelectedFeatureDetails({
           sourceText={document.source.rawText}
         />
       )}
+    </Box>
+  );
+}
+
+function TerrainComparisonDetails({ result }: { result: TerrainComparisonResult }) {
+  if (result.status === 'unavailable') {
+    const message = result.reason === 'no-elevation'
+      ? 'This geometry has no finite Z coordinates to compare.'
+      : result.reason === 'no-terrain'
+        ? 'Terrain data with tile availability is not ready, so no ground height was assumed.'
+        : result.reason === 'sampling-failed'
+          ? 'Terrain sampling failed. No ground height was assumed.'
+          : result.reason === 'numeric-range'
+            ? 'The height difference exceeds the supported numeric range.'
+            : 'No finite terrain samples were returned for this geometry.';
+    return (
+      <Typography role="status" variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+        {message}
+      </Typography>
+    );
+  }
+
+  return (
+    <Box role="status" sx={{ mt: 0.75 }}>
+      <Typography variant="body2">
+        {result.status === 'complete' ? 'Complete' : 'Partial'} comparison: {result.values.length} of {result.totalCoordinates} coordinates; {result.unavailableCoordinates} unavailable.
+      </Typography>
+      <Box component="ul" aria-label="Terrain comparison values" sx={{ listStyle: 'none', p: 0, m: 0, mt: 0.5 }}>
+        {result.values.map((value, index) => (
+          <Box component="li" key={`${value.path.join('.')}-${index}`} sx={{ py: 0.25 }}>
+            <Typography variant="body2">
+              Coordinate {value.path.length > 0 ? value.path.map((part) => part + 1).join('.') : 'point'}: Z {value.sourceZ} m · terrain {value.terrainHeight.toFixed(2)} m · difference {value.difference.toFixed(2)} m
+            </Typography>
+          </Box>
+        ))}
+      </Box>
     </Box>
   );
 }
@@ -333,6 +398,9 @@ export default function InspectorPanel({
   onShowFeatureSource,
   selectedFeatureIndex = null,
   selectedFeatureHasSourceLocation = false,
+  onCompareTerrain,
+  terrainComparisonPending = false,
+  terrainComparison = null,
 }: InspectorPanelProps) {
   if (document.parseError?.kind === 'json-syntax') {
     return (
@@ -399,13 +467,16 @@ export default function InspectorPanel({
       </Typography>
 
       {selectedFeatureIndex !== null && (
-        <SelectedFeatureDetails
+      <SelectedFeatureDetails
           document={document}
           featureIndex={selectedFeatureIndex}
           hasSourceLocation={selectedFeatureHasSourceLocation}
           onSelectDiagnostic={onSelectDiagnostic}
-          onShowFeatureSource={onShowFeatureSource}
-        />
+        onShowFeatureSource={onShowFeatureSource}
+        onCompareTerrain={onCompareTerrain}
+        terrainComparisonPending={terrainComparisonPending}
+        terrainComparison={terrainComparison}
+      />
       )}
 
       {coordinates.dimensions === 'mixed' && (

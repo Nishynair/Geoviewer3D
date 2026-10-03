@@ -37,6 +37,8 @@ type MeasurementGeometry =
 export interface CoordinateZValue {
   /** Index path through coordinate arrays and GeometryCollection.geometries. */
   path: number[];
+  longitude: number;
+  latitude: number;
   z: number | null;
 }
 
@@ -430,7 +432,12 @@ function collectCoordinateZ(
   coordinateZ: CoordinateZValue[],
 ): void {
   const include = (position: Position, coordinatePath: number[]) => {
-    coordinateZ.push({ path: coordinatePath, z: position[2] ?? null });
+    coordinateZ.push({
+      path: coordinatePath,
+      longitude: position[0],
+      latitude: position[1],
+      z: position[2] ?? null,
+    });
   };
 
   switch (geometry.type) {

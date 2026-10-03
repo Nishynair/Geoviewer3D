@@ -1,9 +1,22 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as Cesium from "cesium";
 import { Box, FormControlLabel, Switch } from "@mui/material";
+import Slider from "@mui/material/Slider";
+import Typography from "@mui/material/Typography";
 import type { GeoJSON as GeoJsonValue } from "geojson";
 import type { SxProps, Theme } from "@mui/material/styles";
 import { addAndFlyToIfCurrent } from "../utils/addViewerDataSource";
+import {
+  getFeatureElevationStyle,
+  normalizeVerticalExaggeration,
+  scaleGeoJSONHeights,
+} from "../utils/elevationVisualization";
+import {
+  compareTerrainElevations,
+  unavailableTerrainComparison,
+  type TerrainComparisonRequest,
+  type TerrainComparisonResult,
+} from "../utils/terrainComparison";
 import {
   findCurrentFeatureEntities,
   focusDiagnosticFeature,
@@ -17,6 +30,8 @@ interface Viewer3DProps {
   selectedFeatureIndex: number | null;
   navigationRequestId: number;
   onFeatureSelect?: (featureIndex: number) => void;
+  terrainComparisonRequest?: TerrainComparisonRequest | null;
+  onTerrainComparisonResult?: (requestId: number, result: TerrainComparisonResult) => void;
   sx?: SxProps<Theme>;
 }
 
@@ -36,17 +51,35 @@ export default function Viewer3D({
   selectedFeatureIndex,
   navigationRequestId,
   onFeatureSelect,
+  terrainComparisonRequest = null,
+  onTerrainComparisonResult,
   sx,
 }: Viewer3DProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewerRef = useRef<Cesium.Viewer | null>(null);
   const [isRotating, setIsRotating] = useState(true);
+  const [colorByElevation, setColorByElevation] = useState(false);
+  const [verticalExaggeration, setVerticalExaggeration] = useState(1);
+  const [exaggerationError, setExaggerationError] = useState<string | null>(null);
   const [rotationData, setRotationData] = useState<RotationData | null>(null);
   const [loadedDataSource, setLoadedDataSource] = useState<LoadedDataSource | null>(null);
   const restoreHighlightRef = useRef<(() => void) | null>(null);
   const onFeatureSelectRef = useRef(onFeatureSelect);
+  const terrainRequestRef = useRef(terrainComparisonRequest);
+  const onTerrainComparisonResultRef = useRef(onTerrainComparisonResult);
   const currentGeoJSONRef = useRef(geojson);
+  const lastLoadedCanonicalGeoJSONRef = useRef<GeoJsonValue | null>(null);
+  const viewerGeoJSON = useMemo(
+    () => geojson === null ? null : scaleGeoJSONHeights(geojson, verticalExaggeration),
+    [geojson, verticalExaggeration],
+  );
+  const elevationStyle = useMemo(
+    () => geojson === null ? null : getFeatureElevationStyle(geojson),
+    [geojson],
+  );
   onFeatureSelectRef.current = onFeatureSelect;
+  terrainRequestRef.current = terrainComparisonRequest;
+  onTerrainComparisonResultRef.current = onTerrainComparisonResult;
   currentGeoJSONRef.current = geojson;
 
   useEffect(() => {
@@ -109,7 +142,7 @@ export default function Viewer3D({
     restoreHighlightRef.current = null;
     viewer.dataSources.removeAll();
     setRotationData(null);
-    if (!geojson) return;
+    if (!geojson || !viewerGeoJSON) return;
 
     let cancelled = false;
     let dataSource: Cesium.GeoJsonDataSource | null = null;
@@ -117,7 +150,7 @@ export default function Viewer3D({
 
     const loadGeoJSON = async () => {
       try {
-        const indexedViewerValue = indexFeaturesForViewer(geojson);
+        const indexedViewerValue = indexFeaturesForViewer(viewerGeoJSON);
         dataSource = await Cesium.GeoJsonDataSource.load(indexedViewerValue.geojson, {
           clampToGround: false,
           markerColor: Cesium.Color.RED, // for point features
@@ -125,21 +158,33 @@ export default function Viewer3D({
         if (!isCurrent()) return;
 
         const loadedDataSource = dataSource;
-        const addedAndViewed = await addAndFlyToIfCurrent(
-          loadedDataSource,
-          {
-            add: async (source) => {
-              await viewer.dataSources.add(source);
+        const shouldFlyToDocument = lastLoadedCanonicalGeoJSONRef.current !== geojson;
+        let addedAndViewed = false;
+        if (shouldFlyToDocument) {
+          addedAndViewed = await addAndFlyToIfCurrent(
+            loadedDataSource,
+            {
+              add: async (source) => {
+                await viewer.dataSources.add(source);
+              },
+              remove: (source) => {
+                if (!viewer.isDestroyed()) viewer.dataSources.remove(source, true);
+              },
+              flyTo: (source) => viewer.flyTo(source),
             },
-            remove: (source) => {
-              if (!viewer.isDestroyed()) viewer.dataSources.remove(source, true);
-            },
-            flyTo: (source) => viewer.flyTo(source),
-          },
-          isCurrent,
-        );
+            isCurrent,
+          );
+        } else {
+          await viewer.dataSources.add(loadedDataSource);
+          if (isCurrent()) {
+            addedAndViewed = true;
+          } else if (!viewer.isDestroyed()) {
+            viewer.dataSources.remove(loadedDataSource, true);
+          }
+        }
         if (!addedAndViewed || !isCurrent()) return;
 
+        lastLoadedCanonicalGeoJSONRef.current = geojson;
         setLoadedDataSource({
           dataSource: loadedDataSource,
           geojson,
@@ -185,7 +230,7 @@ export default function Viewer3D({
         viewer.dataSources.remove(dataSource, true);
       }
     };
-  }, [geojson]);
+  }, [geojson, viewerGeoJSON]);
 
   useEffect(() => {
     const viewer = viewerRef.current;
@@ -217,6 +262,124 @@ export default function Viewer3D({
 
     return () => handler.destroy();
   }, [geojson, loadedDataSource]);
+
+  useEffect(() => {
+    if (!colorByElevation || !loadedDataSource || !elevationStyle) return;
+    if (!isCurrentLoadedGeoJSON(geojson, loadedDataSource.geojson)) return;
+
+    const time = Cesium.JulianDate.now();
+    const restore: Array<() => void> = [];
+    for (const entity of loadedDataSource.dataSource.entities.values) {
+      const properties = entity.properties?.getValue(time) as Record<string, unknown> | undefined;
+      const featureIndex = getFeatureIndexFromProperties(
+        properties,
+        loadedDataSource.featureIndexProperty,
+      );
+      if (featureIndex !== null && featureIndex === selectedFeatureIndex) continue;
+      const colorValue = elevationStyle.colors.get(featureIndex ?? 0);
+      if (!colorValue) continue;
+      const color = Cesium.Color.fromCssColorString(colorValue);
+
+      if (entity.polygon) {
+        const polygon = entity.polygon;
+        const previous = {
+          material: polygon.material,
+          outlineColor: polygon.outlineColor,
+        };
+        polygon.material = new Cesium.ColorMaterialProperty(color.withAlpha(0.65));
+        polygon.outlineColor = new Cesium.ConstantProperty(color);
+        restore.push(() => {
+          polygon.material = previous.material;
+          polygon.outlineColor = previous.outlineColor;
+        });
+      }
+      if (entity.polyline) {
+        const polyline = entity.polyline;
+        const previous = polyline.material;
+        polyline.material = new Cesium.ColorMaterialProperty(color);
+        restore.push(() => { polyline.material = previous; });
+      }
+      if (entity.billboard) {
+        const billboard = entity.billboard;
+        const previous = billboard.color;
+        billboard.color = new Cesium.ConstantProperty(color);
+        restore.push(() => { billboard.color = previous; });
+      }
+      if (entity.point) {
+        const point = entity.point;
+        const previous = point.color;
+        point.color = new Cesium.ConstantProperty(color);
+        restore.push(() => { point.color = previous; });
+      }
+    }
+
+    return () => {
+      for (const restoreOne of restore) restoreOne();
+    };
+  }, [colorByElevation, elevationStyle, geojson, loadedDataSource, selectedFeatureIndex]);
+
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    const request = terrainComparisonRequest;
+    if (
+      !viewer ||
+      viewer.isDestroyed() ||
+      !request ||
+      request.geojson !== geojson ||
+      selectedFeatureIndex !== request.featureIndex
+    ) {
+      return;
+    }
+
+    let active = true;
+    let cancelProviderWait: () => void = () => {};
+    const isCurrent = () =>
+      active
+      && currentGeoJSONRef.current === request.geojson
+      && terrainRequestRef.current?.requestId === request.requestId;
+
+    const runComparison = async () => {
+      if (!request.coordinates.some((point) => point.sourceZ !== null && Number.isFinite(point.sourceZ))) {
+        const result = await compareTerrainElevations(request.coordinates, async () => [], isCurrent);
+        if (result && isCurrent()) {
+          onTerrainComparisonResultRef.current?.(request.requestId, result);
+        }
+        return;
+      }
+      const { promise, cancel } = waitForTerrainProvider(viewer, isCurrent);
+      cancelProviderWait = cancel;
+      const provider = await promise;
+      if (!isCurrent()) return;
+      if (!provider) {
+        onTerrainComparisonResultRef.current?.(
+          request.requestId,
+          unavailableTerrainComparison('no-terrain', request.coordinates),
+        );
+        return;
+      }
+
+      const result = await compareTerrainElevations(
+        request.coordinates,
+        async (points) => {
+          const positions = points.map(({ longitude, latitude }) =>
+            Cesium.Cartographic.fromDegrees(longitude, latitude),
+          );
+          const sampled = await Cesium.sampleTerrainMostDetailed(provider, positions, false);
+          return sampled.map((position) => position.height);
+        },
+        isCurrent,
+      );
+      if (result && isCurrent()) {
+        onTerrainComparisonResultRef.current?.(request.requestId, result);
+      }
+    };
+
+    void runComparison();
+    return () => {
+      active = false;
+      cancelProviderWait();
+    };
+  }, [geojson, selectedFeatureIndex, terrainComparisonRequest]);
 
   useEffect(() => {
     const viewer = viewerRef.current;
@@ -262,7 +425,17 @@ export default function Viewer3D({
       restoreHighlightRef.current?.();
       restoreHighlightRef.current = null;
     };
-  }, [geojson, loadedDataSource, navigationRequestId, selectedFeatureIndex]);
+  }, [colorByElevation, geojson, loadedDataSource, navigationRequestId, selectedFeatureIndex]);
+
+  const handleExaggerationChange = (value: number) => {
+    const nextFactor = normalizeVerticalExaggeration(value);
+    if (geojson && scaleGeoJSONHeights(geojson, nextFactor) === null) {
+      setExaggerationError('This factor exceeds the supported numeric range; the viewer was not changed.');
+      return;
+    }
+    setExaggerationError(null);
+    setVerticalExaggeration(nextFactor);
+  };
 
   // Orbit logic
   useEffect(() => {
@@ -310,13 +483,47 @@ export default function Viewer3D({
           position: "absolute",
           top: 10,
           left: 10,
+          width: 230,
+          maxWidth: 'calc(100% - 20px)',
+          p: 1,
+          borderRadius: 1,
+          bgcolor: 'rgba(255,255,255,0.92)',
         }}
         >
-          <FormControlLabel 
-            control={<Switch checked={isRotating} />}
-            label="Auto-rotate" 
-            onChange={()=>setIsRotating(!isRotating)}
+          <FormControlLabel
+            control={<Switch checked={isRotating} onChange={(_event, checked) => setIsRotating(checked)} />}
+            label="Auto-rotate"
           />
+          <FormControlLabel
+            control={<Switch checked={colorByElevation} onChange={(_event, checked) => setColorByElevation(checked)} />}
+            label="Color by elevation"
+          />
+          <Typography variant="caption" component="p" sx={{ m: 0 }}>
+            Color follows each feature’s mean Z within the document range; features without Z keep their default style.
+          </Typography>
+          <Typography variant="caption" component="label" htmlFor="vertical-exaggeration-slider">
+            Vertical exaggeration: {verticalExaggeration.toFixed(1)}×
+          </Typography>
+          <Slider
+            id="vertical-exaggeration-slider"
+            aria-label="Vertical exaggeration"
+            min={1}
+            max={5}
+            step={0.5}
+            value={verticalExaggeration}
+            onChangeCommitted={(_event, value) => {
+              if (typeof value === 'number') handleExaggerationChange(value);
+            }}
+            size="small"
+          />
+          <Typography variant="caption" component="p" sx={{ m: 0 }}>
+            Viewer copy only; GeoJSON Z is treated as meters and scaled from ellipsoid height zero.
+          </Typography>
+          {exaggerationError && (
+            <Typography role="status" variant="caption" color="error" component="p" sx={{ m: 0 }}>
+              {exaggerationError}
+            </Typography>
+          )}
       </Box>
     </Box>
   );
@@ -324,6 +531,50 @@ export default function Viewer3D({
 
 function hasVisibleGeometry(entity: Cesium.Entity): boolean {
   return Boolean(entity.position || entity.polygon || entity.polyline || entity.billboard);
+}
+
+function waitForTerrainProvider(
+  viewer: Cesium.Viewer,
+  isCurrent: () => boolean,
+): { promise: Promise<Cesium.TerrainProvider | null>; cancel: () => void } {
+  const globe = viewer.scene.globe;
+  const currentProvider = () => {
+    if (viewer.isDestroyed()) return null;
+    const provider = globe.terrainProvider;
+    if (provider instanceof Cesium.EllipsoidTerrainProvider) return undefined;
+    return provider.availability ? provider : null;
+  };
+  const available = currentProvider();
+  if (available !== undefined) {
+    return { promise: Promise.resolve(available), cancel: () => undefined };
+  }
+
+  let removeListener: () => void = () => {};
+  let timeout = 0;
+  let settle: (provider: Cesium.TerrainProvider | null) => void = () => {};
+  const promise = new Promise<Cesium.TerrainProvider | null>((resolve) => {
+    let settled = false;
+    const finish = (provider: Cesium.TerrainProvider | null) => {
+      if (settled) return;
+      settled = true;
+      removeListener();
+      window.clearTimeout(timeout);
+      resolve(provider);
+    };
+    settle = finish;
+    const checkProvider = () => {
+      const provider = currentProvider();
+      if (provider !== undefined) finish(provider);
+      else if (!isCurrent()) finish(null);
+    };
+    removeListener = globe.terrainProviderChanged.addEventListener(checkProvider);
+    timeout = window.setTimeout(() => finish(null), 10_000);
+    checkProvider();
+  });
+  return {
+    promise,
+    cancel: () => settle(null),
+  };
 }
 
 function highlightEntities(entities: Cesium.Entity[], time: Cesium.JulianDate): () => void {
