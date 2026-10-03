@@ -15,6 +15,7 @@ import {
 } from 'spatial-doctor';
 import type { Geometry, GeoJSON as GeoJsonValue } from 'geojson';
 import type { SpatialDocument } from '../spatialDocument';
+import type { JsonFgInfo } from '../utils/jsonFg';
 import {
   hasDiagnosticFeatureReference,
   resolveDiagnosticFeatureIndex,
@@ -134,6 +135,62 @@ function GeometryRepairs({
         <Button size="small" sx={{ mt: 1 }} onClick={onUndo}>
           Undo repair
         </Button>
+      )}
+    </Box>
+  );
+}
+
+function JsonFgDetails({ info }: { info: JsonFgInfo }) {
+  const hasUnsupported = info.unsupportedConstructs.length > 0;
+  return (
+    <Box component="section" aria-labelledby="jsonfg-details-heading" sx={{ mt: 2 }}>
+      <Alert severity={hasUnsupported ? 'warning' : 'info'}>
+        <Typography id="jsonfg-details-heading" component="h3" variant="subtitle1">
+          JSON-FG source · Core geometry subset
+        </Typography>
+        <Typography component="p" variant="body2" sx={{ mb: 0, mt: 0.5 }}>
+          The original JSON-FG source is preserved. These inspection metrics and the globe use only the standard GeoJSON geometry member; they do not validate every JSON-FG extension.
+        </Typography>
+      </Alert>
+      <Typography variant="body2" sx={{ mt: 1 }}>
+        Geometry CRS: {info.geometryCrsDescription}
+      </Typography>
+      {info.coordRefSysDeclarations.length > 0 ? (
+        <>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+            coordRefSys values apply to native place and properties spatial values, inherit from the root unless overridden, and do not change the GeoJSON geometry member.
+          </Typography>
+          <Box component="ul" aria-label="JSON-FG coordinate reference declarations" sx={{ listStyle: 'none', p: 0, m: 0, mt: 0.5 }}>
+            {info.coordRefSysDeclarations.map(({ scope, value }, index) => (
+              <Box component="li" key={`${scope}-${index}`} sx={{ py: 0.25, overflowWrap: 'anywhere' }}>
+                <Typography variant="body2">{scope} coordRefSys: {JSON.stringify(value)}</Typography>
+              </Box>
+            ))}
+          </Box>
+        </>
+      ) : (
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+          No coordRefSys value is declared for native place or properties spatial values.
+        </Typography>
+      )}
+      {info.profileUris.length > 0 && (
+        <Box sx={{ mt: 0.75 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>Profile links</Typography>
+          {info.profileUris.map((uri, index) => (
+            <Typography key={`${uri}-${index}`} variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+              {uri}
+            </Typography>
+          ))}
+        </Box>
+      )}
+      {hasUnsupported && (
+        <Box component="ul" aria-label="Unsupported JSON-FG constructs" sx={{ pl: 2.5, mb: 0 }}>
+          {info.unsupportedConstructs.map((construct, index) => (
+            <Typography component="li" key={`${construct}-${index}`} variant="body2">
+              {construct}
+            </Typography>
+          ))}
+        </Box>
       )}
     </Box>
   );
@@ -516,14 +573,20 @@ export default function InspectorPanel({
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2, overflowWrap: 'anywhere' }}>
           {document.source.name}
         </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          Source format: {document.format === 'jsonfg' ? 'JSON-FG' : 'GeoJSON'}
+        </Typography>
         <Alert severity="error">
           <Typography component="h3" variant="subtitle1">
             JSON syntax error
           </Typography>
           <Typography component="p" variant="body2" sx={{ mb: 0, mt: 0.5 }}>
-            The source text could not be parsed as JSON. Correct the JSON text to see a GeoJSON overview.
+            {document.format === 'jsonfg'
+              ? 'The source text could not be parsed as JSON. Correct the JSON text to inspect the JSON-FG document.'
+              : 'The source text could not be parsed as JSON. Correct the JSON text to see a GeoJSON overview.'}
           </Typography>
         </Alert>
+        {document.format === 'jsonfg' && <JsonFgDetails info={document.jsonFg} />}
         <GeometryRepairs
           preview={repairPreview}
           canUndo={canUndoRepair}
@@ -531,6 +594,40 @@ export default function InspectorPanel({
           onApply={onApplyRepair}
           onUndo={onUndoRepair}
         />
+      </Box>
+    );
+  }
+
+  if (document.format === 'jsonfg'
+    && (document.parseError?.kind === 'invalid-jsonfg' || document.parseError?.kind === 'unsupported-jsonfg')) {
+    return (
+      <Box component="section" aria-labelledby="inspector-heading" sx={{ height: '100%', overflowY: 'auto', p: 2 }}>
+        <Typography id="inspector-heading" component="h2" variant="h6" sx={{ mb: 0.5 }}>
+          Dataset overview
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, overflowWrap: 'anywhere' }}>
+          {document.source.name}
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          Source format: JSON-FG
+        </Typography>
+        <Alert severity={document.parseError.kind === 'invalid-jsonfg' ? 'error' : 'warning'}>
+          <Typography component="h3" variant="subtitle1">
+            {document.parseError.kind === 'invalid-jsonfg' ? 'Invalid JSON-FG' : 'Unsupported JSON-FG'}
+          </Typography>
+          <Typography component="p" variant="body2" sx={{ mb: 0, mt: 0.5 }}>
+            {document.parseError.message}
+          </Typography>
+        </Alert>
+        {document.report?.valid === false && (
+          <DiagnosticList
+            diagnostics={document.report.diagnostics}
+            onSelectDiagnostic={onSelectDiagnostic}
+            featureGeoJSON={null}
+            sourceText={document.source.rawText}
+          />
+        )}
+        <JsonFgDetails info={document.jsonFg} />
       </Box>
     );
   }
@@ -543,6 +640,9 @@ export default function InspectorPanel({
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2, overflowWrap: 'anywhere' }}>
           {document.source.name}
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          Source format: GeoJSON
         </Typography>
         <Typography variant="body2" color="text.secondary">
           The current document is not valid GeoJSON, so its summary metrics are unavailable.
@@ -584,6 +684,14 @@ export default function InspectorPanel({
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, overflowWrap: 'anywhere' }}>
         {document.source.name}
       </Typography>
+
+      {document.format === 'jsonfg' && <JsonFgDetails info={document.jsonFg} />}
+
+      {document.format === 'geojson' && (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          Source format: GeoJSON
+        </Typography>
+      )}
 
       {selectedFeatureIndex !== null && (
       <SelectedFeatureDetails

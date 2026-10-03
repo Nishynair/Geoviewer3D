@@ -1,6 +1,13 @@
 import { check, HintError, type HintIssue } from '@placemarkio/check-geojson';
 import type { GeoJSON as GeoJsonValue } from 'geojson';
 import type { InspectionReport } from 'spatial-doctor';
+import {
+  emptyJsonFgInfo,
+  hasJsonFgSourceContext,
+  inspectJsonFg,
+  isJsonFgCandidate,
+  type JsonFgInfo,
+} from './utils/jsonFg';
 
 export interface SpatialDocumentSource {
   name: string;
@@ -17,32 +24,57 @@ export type SpatialDocumentError =
       kind: 'invalid-geojson';
       message: string;
       issues: HintIssue[];
+    }
+  | {
+      kind: 'invalid-jsonfg' | 'unsupported-jsonfg';
+      message: string;
+      issues: HintIssue[];
     };
 
-interface SpatialDocumentBase {
+interface SpatialDocumentSourceBase {
   source: SpatialDocumentSource;
-  format: 'geojson';
 }
 
 type ValidInspectionReport = Extract<InspectionReport, { valid: true }>;
 type InvalidInspectionReport = Extract<InspectionReport, { valid: false }>;
 
-export type SpatialDocument =
-  | (SpatialDocumentBase & {
+type GeoJSONSpatialDocument =
+  | (SpatialDocumentSourceBase & {
+      format: 'geojson';
       parsed: GeoJsonValue;
       parseError: null;
       report: ValidInspectionReport;
     })
-  | (SpatialDocumentBase & {
+  | (SpatialDocumentSourceBase & {
+      format: 'geojson';
       parsed: null;
       parseError: Extract<SpatialDocumentError, { kind: 'json-syntax' }>;
       report: null;
     })
-  | (SpatialDocumentBase & {
+  | (SpatialDocumentSourceBase & {
+      format: 'geojson';
       parsed: null;
       parseError: Extract<SpatialDocumentError, { kind: 'invalid-geojson' }>;
       report: InvalidInspectionReport;
     });
+
+type JsonFGSpatialDocument =
+  | (SpatialDocumentSourceBase & {
+      format: 'jsonfg';
+      parsed: GeoJsonValue;
+      parseError: null;
+      report: ValidInspectionReport;
+      jsonFg: JsonFgInfo;
+    })
+  | (SpatialDocumentSourceBase & {
+      format: 'jsonfg';
+      parsed: null;
+      parseError: Extract<SpatialDocumentError, { kind: 'json-syntax' | 'invalid-jsonfg' | 'unsupported-jsonfg' }>;
+      report: InvalidInspectionReport | null;
+      jsonFg: JsonFgInfo;
+    });
+
+export type SpatialDocument = GeoJSONSpatialDocument | JsonFGSpatialDocument;
 
 export type GeoJSONInspector = (input: unknown) => InspectionReport;
 
@@ -85,16 +117,52 @@ export function createSpatialDocument(
     parsed = JSON.parse(rawText);
   } catch (syntaxError: unknown) {
     const issues = getSourceIssues(rawText);
+    const isJsonFg = hasJsonFgSourceContext(name, rawText);
+    const message = issues[0]?.message ?? syntaxErrorMessage(syntaxError);
+    if (isJsonFg) {
+      return {
+        source,
+        format: 'jsonfg',
+        parsed: null,
+        parseError: { kind: 'json-syntax', message, issues },
+        report: null,
+        jsonFg: emptyJsonFgInfo(),
+      };
+    }
     return {
       source,
       format: 'geojson',
       parsed: null,
-      parseError: {
-        kind: 'json-syntax',
-        message: issues[0]?.message ?? syntaxErrorMessage(syntaxError),
-        issues,
-      },
+      parseError: { kind: 'json-syntax', message, issues },
       report: null,
+    };
+  }
+
+  if (isJsonFgCandidate(parsed)) {
+    const adaptation = inspectJsonFg(parsed, inspectGeoJSON);
+    if (adaptation.status === 'valid') {
+      return {
+        source,
+        format: 'jsonfg',
+        parsed: adaptation.geometryView,
+        parseError: null,
+        report: adaptation.report,
+        jsonFg: adaptation.info,
+      };
+    }
+
+    const unsupported = adaptation.status === 'unsupported';
+    return {
+      source,
+      format: 'jsonfg',
+      parsed: null,
+      parseError: {
+        kind: unsupported ? 'unsupported-jsonfg' : 'invalid-jsonfg',
+        message: adaptation.message,
+        issues: [],
+      },
+      report: adaptation.status === 'invalid' ? adaptation.report : null,
+      jsonFg: adaptation.info,
     };
   }
 

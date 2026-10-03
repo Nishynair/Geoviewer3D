@@ -337,9 +337,9 @@ function App() {
               document={document}
               repairPreview={visibleRepairPreview}
               canUndoRepair={canUndoRepair}
-              onPreviewRepair={handlePreviewRepair}
-              onApplyRepair={handleApplyRepair}
-              onUndoRepair={handleUndoRepair}
+              onPreviewRepair={document.format === 'geojson' ? handlePreviewRepair : undefined}
+              onApplyRepair={document.format === 'geojson' ? handleApplyRepair : undefined}
+              onUndoRepair={document.format === 'geojson' ? handleUndoRepair : undefined}
               onSelectDiagnostic={handleSelectDiagnostic}
               onShowFeatureSource={() => featureSelectionController.showFeatureSource(activeSelection)}
               selectedFeatureIndex={activeSelection?.featureIndex ?? null}

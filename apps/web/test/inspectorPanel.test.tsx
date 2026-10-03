@@ -125,6 +125,77 @@ function textContent(markup: string): string {
 }
 
 describe('InspectorPanel', () => {
+  it('explains the supported JSON-FG geometry view and declared CRS scope', () => {
+    const markup = textContent(renderDocument(JSON.stringify({
+      type: 'FeatureCollection',
+      conformsTo: ['http://www.opengis.net/spec/json-fg-1/1.0/conf/core'],
+      coordRefSys: 'http://www.opengis.net/def/crs/OGC/1.3/CRS84',
+      features: [{
+        type: 'Feature',
+        properties: { name: 'Airport' },
+        geometry: { type: 'Point', coordinates: [-6.258, 55.682] },
+      }],
+    }), 'airports.json'));
+
+    expect(markup).toContain('JSON-FG source · Core geometry subset');
+    expect(markup).toContain('original JSON-FG source is preserved');
+    expect(markup).toContain('CRS84 for XY');
+    expect(markup).toContain('coordRefSys values apply to native place and properties spatial values');
+    expect(markup).toContain('root coordRefSys: "http://www.opengis.net/def/crs/OGC/1.3/CRS84"');
+    expect(markup).toContain('Feature count 1');
+  });
+
+  it('reports preserved but uninterpreted JSON-FG constructs and invalid JSON-FG without stale metrics', () => {
+    const supportedWithNativePlace = textContent(renderDocument(JSON.stringify({
+      type: 'Feature',
+      conformsTo: ['http://www.opengis.net/spec/json-fg-1/1.0/conf/core'],
+      links: [{
+        rel: 'profile',
+        href: 'http://www.opengis.net/def/profile/OGC/0/jsonfg-plus',
+      }],
+      properties: {},
+      geometry: { type: 'Point', coordinates: [1, 2] },
+      place: { type: 'Point', coordinates: [1000, 2000] },
+    }), 'airport.json'));
+    const invalid = textContent(renderDocument(JSON.stringify({
+      type: 'Feature',
+      place: { type: 'Point', coordinates: [1, 2] },
+      geometry: null,
+      properties: {},
+    }), 'missing-core.json'));
+    const unsupported = textContent(renderDocument(JSON.stringify({
+      type: 'FeatureSequence',
+      conformsTo: ['http://www.opengis.net/spec/json-fg-1/1.0/conf/core'],
+      features: [],
+    }), 'sequence.json'));
+
+    expect(supportedWithNativePlace).toContain('Native place geometry');
+    expect(supportedWithNativePlace).toContain('preserved in the JSON-FG source but is not rendered');
+    expect(supportedWithNativePlace).toContain('http://www.opengis.net/def/profile/OGC/0/jsonfg-plus');
+    expect(invalid).toContain('Source format: JSON-FG');
+    expect(invalid).toContain('Invalid JSON-FG');
+    expect(invalid).toContain('requires a root `conformsTo` array');
+    expect(invalid).not.toContain('Feature count');
+    expect(invalid).not.toContain('Coordinate tuples');
+    expect(unsupported).toContain('Unsupported JSON-FG');
+    expect(unsupported).toContain('Feature and FeatureCollection roots');
+    expect(unsupported).not.toContain('Feature count');
+  });
+
+  it('shows GeoJSON geometry diagnostics for invalid geometry inside JSON-FG', () => {
+    const markup = textContent(renderDocument(JSON.stringify({
+      type: 'FeatureCollection',
+      conformsTo: ['http://www.opengis.net/spec/json-fg-1/1.0/conf/core'],
+      features: [{ type: 'Feature', properties: {}, geometry: 'invalid' }],
+    }), 'invalid-geometry.json'));
+
+    expect(markup).toContain('Invalid JSON-FG');
+    expect(markup).toContain('invalid-geojson');
+    expect(markup).toContain('This document does not match the required GeoJSON structure.');
+    expect(markup).not.toContain('Feature count');
+    expect(markup).not.toContain('Coordinate tuples');
+  });
+
   it('renders the report’s XY counts, simple bounds, and missing-Z state', () => {
     const markup = textContent(renderDocument(JSON.stringify({
       type: 'FeatureCollection',
