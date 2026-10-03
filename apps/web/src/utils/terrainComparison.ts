@@ -23,6 +23,7 @@ export interface TerrainDifference {
 
 export type TerrainUnavailableReason =
   | 'no-elevation'
+  | 'no-valid-locations'
   | 'no-terrain'
   | 'sampling-failed'
   | 'no-sampled-heights'
@@ -74,14 +75,25 @@ export async function compareTerrainElevations(
   sample: TerrainSampler,
   isCurrent: () => boolean = () => true,
 ): Promise<TerrainComparisonResult | null> {
+  const coordinatesWithElevation = coordinates.filter((point) =>
+    point.sourceZ !== null && Number.isFinite(point.sourceZ),
+  ).length;
   const eligible = coordinates.filter((point) =>
     Number.isFinite(point.longitude)
+    && point.longitude >= -180
+    && point.longitude <= 180
     && Number.isFinite(point.latitude)
+    && point.latitude >= -90
+    && point.latitude <= 90
     && point.sourceZ !== null
     && Number.isFinite(point.sourceZ),
   );
   if (eligible.length === 0) {
-    return unavailable('no-elevation', coordinates.length, 0);
+    return unavailable(
+      coordinatesWithElevation === 0 ? 'no-elevation' : 'no-valid-locations',
+      coordinates.length,
+      coordinatesWithElevation,
+    );
   }
 
   let sampled: readonly (number | null | undefined)[];
@@ -119,14 +131,14 @@ export async function compareTerrainElevations(
     return unavailable(
       encounteredNumericRange ? 'numeric-range' : 'no-sampled-heights',
       coordinates.length,
-      eligible.length,
+      coordinatesWithElevation,
     );
   }
 
   return {
     status: unavailableCoordinates === 0 ? 'complete' : 'partial',
     totalCoordinates: coordinates.length,
-    coordinatesWithElevation: eligible.length,
+    coordinatesWithElevation,
     unavailableCoordinates,
     values,
   };

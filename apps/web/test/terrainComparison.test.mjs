@@ -42,6 +42,49 @@ test('reports no elevation without invoking the terrain sampler', async () => {
   });
 });
 
+test('samples only in-range longitude and latitude while preserving source paths and counts', async () => {
+  const coordinates = [
+    { path: [0], longitude: -180, latitude: 90, sourceZ: 120 },
+    { path: [1], longitude: 180.01, latitude: 20, sourceZ: 125 },
+    { path: [2], longitude: 10, latitude: -90.01, sourceZ: 130 },
+  ];
+
+  const result = await compareTerrainElevations(coordinates, async (requested) => {
+    assert.deepEqual(requested.map(({ path }) => path), [[0]]);
+    assert.equal(requested[0].sourceZ, 120);
+    return [100];
+  });
+
+  assert.deepEqual(result, {
+    status: 'partial',
+    totalCoordinates: 3,
+    coordinatesWithElevation: 3,
+    unavailableCoordinates: 2,
+    values: [{ path: [0], longitude: -180, latitude: 90, sourceZ: 120, terrainHeight: 100, difference: 20 }],
+  });
+});
+
+test('does not invoke the terrain sampler when all Z-bearing locations are out of range', async () => {
+  let sampled = false;
+  const result = await compareTerrainElevations([
+    { path: [0], longitude: 200, latitude: 0, sourceZ: 120 },
+    { path: [1], longitude: 0, latitude: 91, sourceZ: 125 },
+  ], async () => {
+    sampled = true;
+    return [100, 101];
+  });
+
+  assert.equal(sampled, false);
+  assert.deepEqual(result, {
+    status: 'unavailable',
+    reason: 'no-valid-locations',
+    totalCoordinates: 2,
+    coordinatesWithElevation: 2,
+    unavailableCoordinates: 2,
+    values: [],
+  });
+});
+
 test('marks overflowed height differences unavailable and never returns non-finite output', async () => {
   const result = await compareTerrainElevations([
     { path: [0], longitude: 0, latitude: 0, sourceZ: 1e308 },

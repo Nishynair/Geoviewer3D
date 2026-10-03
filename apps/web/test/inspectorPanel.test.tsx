@@ -348,10 +348,19 @@ describe('InspectorPanel', () => {
       unavailableCoordinates: 1,
       values: [],
     }));
+    const unsupportedLocations = textContent(renderTerrainComparison({
+      status: 'unavailable',
+      reason: 'no-valid-locations',
+      totalCoordinates: 1,
+      coordinatesWithElevation: 1,
+      unavailableCoordinates: 1,
+      values: [],
+    }));
 
     expect(waiting).toContain('Sampling terrain…');
     expect(waiting).toContain('Waiting for available terrain samples…');
     expect(unavailable).toContain('Terrain data with tile availability is not ready, so no ground height was assumed.');
+    expect(unsupportedLocations).toContain('outside the supported longitude/latitude range, so terrain was not sampled.');
     expect(unavailable).not.toContain('terrain 0.00 m');
   });
 });

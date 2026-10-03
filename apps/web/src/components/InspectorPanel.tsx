@@ -302,6 +302,8 @@ function TerrainComparisonDetails({ result }: { result: TerrainComparisonResult 
   if (result.status === 'unavailable') {
     const message = result.reason === 'no-elevation'
       ? 'This geometry has no finite Z coordinates to compare.'
+      : result.reason === 'no-valid-locations'
+        ? 'Coordinates with finite Z are outside the supported longitude/latitude range, so terrain was not sampled.'
       : result.reason === 'no-terrain'
         ? 'Terrain data with tile availability is not ready, so no ground height was assumed.'
         : result.reason === 'sampling-failed'
