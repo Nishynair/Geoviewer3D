@@ -38,7 +38,7 @@ import {
   type GeoJSONRepairKind,
   type GeoJSONRepairPreview,
 } from './utils/geoJsonRepairs';
-import { isControlledEditorEcho } from './utils/editorChangeGuard';
+import { createEditorTextChangeHandler } from './utils/editorChangeGuard';
 
 interface TerrainComparisonDisplay {
   geojson: GeoJsonValue;
@@ -165,17 +165,19 @@ function App() {
     ? terrainResult.result
     : null;
 
-  const handleTextChange = (rawText: string) => {
-    // The separate Monaco subscription also receives @monaco-editor/react's
-    // controlled executeEdits update after Apply/Undo. Ignore that echo so it
-    // cannot discard the undo snapshot for a repair.
-    if (isControlledEditorEcho(rawText, currentSourceTextRef.current)) return;
-    setRepairPreview(null);
-    setAppliedRepair(null);
-    setDocument((currentDocument) =>
-      createSpatialDocument(currentDocument.source.name, rawText, inspectGeoJSON),
-    );
-  };
+  const handleTextChange = createEditorTextChangeHandler(
+    () => currentSourceTextRef.current,
+    (rawText) => {
+      // The separate Monaco subscription also receives @monaco-editor/react's
+      // controlled executeEdits update after Apply/Undo. Ignore that echo so it
+      // cannot discard the undo snapshot for a repair.
+      setRepairPreview(null);
+      setAppliedRepair(null);
+      setDocument((currentDocument) =>
+        createSpatialDocument(currentDocument.source.name, rawText, inspectGeoJSON),
+      );
+    },
+  );
 
   const handleFileLoad = (name: string, rawText: string) => {
     setRepairPreview(null);

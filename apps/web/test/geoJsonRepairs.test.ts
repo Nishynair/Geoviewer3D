@@ -5,7 +5,7 @@ import {
   previewGeoJSONRepair,
   undoAppliedRepair,
 } from '../src/utils/geoJsonRepairs.ts';
-import { isControlledEditorEcho } from '../src/utils/editorChangeGuard.ts';
+import { createEditorTextChangeHandler } from '../src/utils/editorChangeGuard.ts';
 
 const unclosedPolygonSource = {
   name: 'lot.geojson',
@@ -246,7 +246,7 @@ test('applies only a current preview once and undoes to the exact prior text and
   assert.equal(undoAppliedRepair({ ...applied.current, name: 'other.geojson' }, applied), null);
 });
 
-test('a controlled Monaco echo after apply does not discard the exact undo snapshot', () => {
+test('the App editor-change handler preserves undo across the controlled Monaco echo after Apply', () => {
   const preview = previewGeoJSONRepair(unclosedPolygonSource, 'close-unclosed-rings');
   assert.equal(preview.status, 'ready');
   if (preview.status !== 'ready') return;
@@ -254,12 +254,41 @@ test('a controlled Monaco echo after apply does not discard the exact undo snaps
   assert.ok(applied);
   if (!applied) return;
 
-  let forwardedEditorChanges = 0;
-  const controlledMonacoValue = applied.current.rawText;
-  if (!isControlledEditorEcho(controlledMonacoValue, applied.current.rawText)) {
-    forwardedEditorChanges += 1;
-  }
-  assert.equal(isControlledEditorEcho(`${controlledMonacoValue} `, applied.current.rawText), false);
-  assert.equal(forwardedEditorChanges, 0);
-  assert.deepEqual(undoAppliedRepair(applied.current, applied), unclosedPolygonSource);
+  let currentSource = applied.current;
+  let activeAppliedRepair = applied;
+  const onEditorTextChange = createEditorTextChangeHandler(
+    () => currentSource.rawText,
+    (rawText) => {
+      activeAppliedRepair = null;
+      currentSource = { name: currentSource.name, rawText };
+    },
+  );
+
+  assert.equal(onEditorTextChange(applied.current.rawText), 'controlled-echo');
+  assert.equal(activeAppliedRepair, applied);
+  assert.deepEqual(undoAppliedRepair(currentSource, activeAppliedRepair), unclosedPolygonSource);
+});
+
+test('the App editor-change handler clears repair undo after an actual edit', () => {
+  const preview = previewGeoJSONRepair(unclosedPolygonSource, 'close-unclosed-rings');
+  assert.equal(preview.status, 'ready');
+  if (preview.status !== 'ready') return;
+  const applied = applyRepairPreview(unclosedPolygonSource, preview);
+  assert.ok(applied);
+  if (!applied) return;
+
+  let currentSource = applied.current;
+  let activeAppliedRepair = applied;
+  const onEditorTextChange = createEditorTextChangeHandler(
+    () => currentSource.rawText,
+    (rawText) => {
+      activeAppliedRepair = null;
+      currentSource = { name: currentSource.name, rawText };
+    },
+  );
+  const editedText = `${applied.current.rawText} `;
+
+  assert.equal(onEditorTextChange(editedText), 'user-edit');
+  assert.equal(activeAppliedRepair, null);
+  assert.equal(currentSource.rawText, editedText);
 });
