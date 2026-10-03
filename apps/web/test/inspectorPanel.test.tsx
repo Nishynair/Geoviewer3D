@@ -43,6 +43,7 @@ describe('InspectorPanel', () => {
     expect(markup).toContain('X 12 to 12');
     expect(markup).toContain('Y -5 to -5');
     expect(markup).toContain('No Z values');
+    expect(markup).toContain('No package diagnostics for this document.');
   });
 
   it('renders XYZ Z minimum and maximum from the report', () => {
@@ -57,7 +58,7 @@ describe('InspectorPanel', () => {
     expect(markup).toContain('Z range -4 to 18');
   });
 
-  it('renders mixed dimensions from the report', () => {
+  it('explains mixed dimensions without marking the report invalid', () => {
     const markup = textContent(renderDocument(JSON.stringify({
       type: 'FeatureCollection',
       features: [
@@ -75,7 +76,8 @@ describe('InspectorPanel', () => {
     })));
 
     expect(markup).toContain('Dimensions Mixed XY/XYZ');
-    expect(markup).not.toContain('This valid document contains both XY and XYZ coordinate tuples.');
+    expect(markup).toContain('This valid document contains both XY and XYZ coordinate tuples.');
+    expect(markup).toContain('No package diagnostics for this document.');
     expect(markup).not.toContain('Invalid GeoJSON');
   });
 
@@ -93,17 +95,19 @@ describe('InspectorPanel', () => {
     expect(markup).toContain('No Z values');
   });
 
-  it('shows a JSON syntax error without stale report metrics', () => {
+  it('distinguishes a JSON syntax error without stale report metrics', () => {
     const markup = textContent(renderDocument('{"type":', 'broken.geojson'));
 
     expect(markup).toContain('broken.geojson');
-    expect(markup).toContain('An overview is unavailable for this document.');
+    expect(markup).toContain('JSON syntax error');
+    expect(markup).toContain('Correct the JSON text to see a GeoJSON overview.');
+    expect(markup).not.toContain('Invalid GeoJSON');
     expect(markup).not.toContain('Feature count');
     expect(markup).not.toContain('Coordinate tuples');
     expect(markup).not.toContain('Point 1');
   });
 
-  it('shows an invalid-document state without stale report metrics', () => {
+  it('shows stable-code severity and defined copy for invalid GeoJSON without stale metrics', () => {
     const markup = textContent(renderDocument(JSON.stringify({
       type: 'FeatureCollection',
       features: [
@@ -111,10 +115,12 @@ describe('InspectorPanel', () => {
       ],
     })));
 
-    expect(markup).toContain('An overview is unavailable for this document.');
+    expect(markup).toContain('Invalid GeoJSON');
+    expect(markup).toContain('invalid-geojson');
+    expect(markup).toContain('error');
+    expect(markup).toContain('This document does not match the required GeoJSON structure.');
     expect(markup).not.toContain('Feature count');
     expect(markup).not.toContain('Coordinate tuples');
     expect(markup).not.toContain('Point 1');
-    expect(markup).not.toContain('invalid-geojson');
   });
 });
