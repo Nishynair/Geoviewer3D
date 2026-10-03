@@ -5,6 +5,7 @@ import {
   previewGeoJSONRepair,
   undoAppliedRepair,
 } from '../src/utils/geoJsonRepairs.ts';
+import { isControlledEditorEcho } from '../src/utils/editorChangeGuard.ts';
 
 const unclosedPolygonSource = {
   name: 'lot.geojson',
@@ -243,4 +244,22 @@ test('applies only a current preview once and undoes to the exact prior text and
   assert.deepEqual(undoAppliedRepair(applied.current, applied), unclosedPolygonSource);
   assert.equal(undoAppliedRepair({ ...applied.current, rawText: `${applied.current.rawText} ` }, applied), null);
   assert.equal(undoAppliedRepair({ ...applied.current, name: 'other.geojson' }, applied), null);
+});
+
+test('a controlled Monaco echo after apply does not discard the exact undo snapshot', () => {
+  const preview = previewGeoJSONRepair(unclosedPolygonSource, 'close-unclosed-rings');
+  assert.equal(preview.status, 'ready');
+  if (preview.status !== 'ready') return;
+  const applied = applyRepairPreview(unclosedPolygonSource, preview);
+  assert.ok(applied);
+  if (!applied) return;
+
+  let forwardedEditorChanges = 0;
+  const controlledMonacoValue = applied.current.rawText;
+  if (!isControlledEditorEcho(controlledMonacoValue, applied.current.rawText)) {
+    forwardedEditorChanges += 1;
+  }
+  assert.equal(isControlledEditorEcho(`${controlledMonacoValue} `, applied.current.rawText), false);
+  assert.equal(forwardedEditorChanges, 0);
+  assert.deepEqual(undoAppliedRepair(applied.current, applied), unclosedPolygonSource);
 });

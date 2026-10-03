@@ -38,6 +38,7 @@ import {
   type GeoJSONRepairKind,
   type GeoJSONRepairPreview,
 } from './utils/geoJsonRepairs';
+import { isControlledEditorEcho } from './utils/editorChangeGuard';
 
 interface TerrainComparisonDisplay {
   geojson: GeoJsonValue;
@@ -60,6 +61,8 @@ function App() {
   const [terrainResult, setTerrainResult] = useState<TerrainComparisonDisplay | null>(null);
   const [repairPreview, setRepairPreview] = useState<GeoJSONRepairPreview | null>(null);
   const [appliedRepair, setAppliedRepair] = useState<AppliedGeoJSONRepair | null>(null);
+  const currentSourceTextRef = useRef(document.source.rawText);
+  currentSourceTextRef.current = document.source.rawText;
   const activeSelection = selection?.document === document ? selection : null;
   const featureSelectionController = createFeatureSelectionController({
     getDocument: () => document,
@@ -163,6 +166,10 @@ function App() {
     : null;
 
   const handleTextChange = (rawText: string) => {
+    // The separate Monaco subscription also receives @monaco-editor/react's
+    // controlled executeEdits update after Apply/Undo. Ignore that echo so it
+    // cannot discard the undo snapshot for a repair.
+    if (isControlledEditorEcho(rawText, currentSourceTextRef.current)) return;
     setRepairPreview(null);
     setAppliedRepair(null);
     setDocument((currentDocument) =>
