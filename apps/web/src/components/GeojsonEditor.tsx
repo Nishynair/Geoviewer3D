@@ -1,11 +1,24 @@
-import { useRef, useState, useEffect} from "react";
+import { useRef, useEffect } from "react";
+import type { SxProps, Theme } from "@mui/material/styles";
 import { Box } from "@mui/material";
-import Editor from "@monaco-editor/react";
-import { check } from "@placemarkio/check-geojson";
+import Editor, { type OnMount } from "@monaco-editor/react";
 import StatusAlert from "./StatusAlert"
 import { errorColor } from "../consts";
+import type { SpatialDocument } from "../spatialDocument";
+import type { HintIssue } from "@placemarkio/check-geojson";
 
-const extractColumnLineFromErrMsg = (errorMessage) => {
+type MonacoEditor = Parameters<OnMount>[0];
+type Monaco = Parameters<OnMount>[1];
+const NO_VALIDATION_ISSUES: HintIssue[] = [];
+
+interface GeojsonEditorProps {
+  document: SpatialDocument;
+  onTextChange: (text: string) => void;
+  sx?: SxProps<Theme>;
+  isCompact?: boolean;
+}
+
+const extractColumnLineFromErrMsg = (errorMessage: string): [string | undefined, string | undefined] => {
     const re = /\((\d{2}):(\d{2})\)\s*$/;
 
     const [, line, column] = errorMessage.match(re) || [];
@@ -13,35 +26,19 @@ const extractColumnLineFromErrMsg = (errorMessage) => {
 }
 
 export default function GeojsonEditor({
-  text,
-  setText,
+  document,
+  onTextChange,
   sx = {},
   isCompact = false,
-}) {
-  const editorRef = useRef(null);
-  const monacoRef = useRef(null);
-  const decorationIdsRef = useRef([]);
-  const [errorMessages, setErrorMessages] = useState([]);
-  const [currentErrorMessage, setCurrentErrorMessage] = useState(null);
+}: GeojsonEditorProps) {
+  const editorRef = useRef<MonacoEditor | null>(null);
+  const monacoRef = useRef<Monaco | null>(null);
+  const decorationIdsRef = useRef<string[]>([]);
+  const errorMessages = document.parseError?.issues ?? NO_VALIDATION_ISSUES;
+  const currentErrorMessage = document.parseError?.message ?? null;
   const lineNumbersMinChars = isCompact ? 2 : 4;
   const editorFontSize = isCompact ? 12 : 14;
   const minimapEnabled = !isCompact;
-
-  // Checks if GeoJSON is valid
-  useEffect(() => {
-    try{
-        // validate the geojson, if invalid throw errors
-        check(text);
-        // if no errors, reset the error prop, and parse it
-        setErrorMessages([]);
-        setCurrentErrorMessage(null);
-
-    }
-   catch (error){
-        setErrorMessages(structuredClone(error.issues));
-        setCurrentErrorMessage(error.issues[0].message);
-    }
-  }, [text]);
 
   useEffect(() => {
 
@@ -49,19 +46,23 @@ export default function GeojsonEditor({
     const monaco = monacoRef.current;
     if (!editor || !monaco) return;
     const model = editor.getModel();
+    if (!model) return;
 
-    const newDecorations = [];
+    const newDecorations: Parameters<MonacoEditor['deltaDecorations']>[1] = [];
 
     errorMessages.forEach(err => {
         const startCol = err.from;
         const endCol = err.to;
-        let sLine, sCol, eLine, eCol;
+        let sLine: number | undefined;
+        let sCol: number | undefined;
+        let eLine: number | undefined;
+        let eCol: number | undefined;
 
         // Some line / column numbers are within the error message, so dig for them!
-        if(startCol == 0 && endCol == 0){ 
+        if (startCol === 0 && endCol === 0) {
             const [line, column] = extractColumnLineFromErrMsg(err.message);
 
-            if (line){
+            if (line && column){
                 sLine = eLine = parseInt(line);
                 sCol = parseInt(column);
                 eCol = parseInt(column) + 1;
@@ -77,7 +78,7 @@ export default function GeojsonEditor({
         }
 
 
-        if(sLine){
+        if (sLine !== undefined && sCol !== undefined && eLine !== undefined && eCol !== undefined) {
             // Highlight characters
             newDecorations.push({
                 range: new monaco.Range(sLine, sCol, eLine, eCol),
@@ -107,7 +108,7 @@ export default function GeojsonEditor({
     });
   }, [lineNumbersMinChars, editorFontSize, minimapEnabled]);
 
-  const onMount = (editor, monaco) => {
+  const onMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
 
@@ -126,7 +127,7 @@ export default function GeojsonEditor({
 
     // Check if content changed
     editor.onDidChangeModelContent(() => {
-      setText(editor.getValue());
+      onTextChange(editor.getValue());
     });
   };
 
@@ -158,7 +159,7 @@ export default function GeojsonEditor({
             }}
         >
             <Editor
-                value={text}
+                value={document.source.rawText}
                 defaultLanguage="json"
                 onMount={onMount}
             />

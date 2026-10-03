@@ -1,24 +1,25 @@
 import { IconButton, Box, Tooltip } from "@mui/material";
 import UploadOutlinedIcon from '@mui/icons-material/UploadOutlined';
+import type { ChangeEvent } from 'react';
 
-export default function UploadButton({setText = ()=>{} }) {
+interface UploadButtonProps {
+  onFileLoad: (name: string, rawText: string) => void;
+}
 
-  const handleFileChange = (event) => {
-    const selectedFile = event.target.files[0];
+export default function UploadButton({ onFileLoad }: UploadButtonProps) {
+
+  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const selectedFile = input.files?.[0];
     
     if (selectedFile){
       // Read file content as text
       const reader = new FileReader();
-      reader.onload = (e) => {
-        try{
-          // Quick way to validate and format JSON
-          const text = JSON.stringify(JSON.parse(e.target.result), null, 2);
-          setText(text);
-          // So that another file can be uploaded
-          event.target.value = null;
-        }catch (error){
-          console.error("Invalid GeoJSON:", error.message);
-        }
+      reader.onload = () => {
+        if (typeof reader.result !== 'string') return;
+        onFileLoad(selectedFile.name, reader.result);
+        // So that another file can be uploaded
+        input.value = '';
       }
       reader.readAsText(selectedFile);
     }
@@ -37,7 +38,7 @@ export default function UploadButton({setText = ()=>{} }) {
       />
       <label htmlFor="upload-json">
         <Tooltip title='Upload GeoJSON'>
-          <IconButton variant="contained" component="span">
+          <IconButton component="span">
             <UploadOutlinedIcon sx={{ color:"white" }}/>
           </IconButton>
         </Tooltip>

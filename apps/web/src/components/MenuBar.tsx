@@ -1,4 +1,4 @@
-import { 
+import {
   AppBar, 
   Toolbar, 
   Typography
@@ -7,8 +7,14 @@ import UploadButton from "./Buttons/UploadButton";
 import DownloadButton from "./Buttons/DownloadButton";
 import CopyButton from "./Buttons/CopyButton";
 import InfoButton from "./Buttons/InfoButton";
+import type { SpatialDocument } from "../spatialDocument";
 
-export default function MenuBar ({text, setText}) {
+interface MenuBarProps {
+  document: SpatialDocument;
+  onFileLoad: (name: string, rawText: string) => void;
+}
+
+export default function MenuBar({ document, onFileLoad }: MenuBarProps) {
   return (
     <AppBar position="static" >
       <Toolbar variant="dense">
@@ -21,9 +27,9 @@ export default function MenuBar ({text, setText}) {
         >
           Geoviewer3D
         </Typography>
-        <UploadButton setText={setText}/>
-        <DownloadButton text={text}/>
-        <CopyButton text={text}/>
+        <UploadButton onFileLoad={onFileLoad}/>
+        <DownloadButton text={document.source.rawText}/>
+        <CopyButton text={document.source.rawText}/>
         <InfoButton/>
       </Toolbar>
     </AppBar>

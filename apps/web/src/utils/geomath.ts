@@ -1,6 +1,10 @@
 import proj4 from "proj4";
 
-function getUTMZone (latDeg, lonDeg) {
+type Hemisphere = "N" | "S";
+type Wgs84Coordinate = [longitude: number, latitude: number, height?: number];
+type UTMCoordinate = [easting: number, northing: number, height: number];
+
+function getUTMZone(latDeg: number, lonDeg: number): { zone: number; hemisphere: Hemisphere } {
 
   // Normalize longitude to [-180, 180)
   const lon = ((lonDeg + 180) % 360 + 360) % 360 - 180;
@@ -28,12 +32,12 @@ function getUTMZone (latDeg, lonDeg) {
   return { zone, hemisphere };
 }
 
-function utmProjString (zone, hemisphere) {
+function utmProjString(zone: number, hemisphere: Hemisphere): string {
   const isSouth = hemisphere === "S" ? " +south" : "";
   return `+proj=utm +zone=${zone} +datum=WGS84 +units=m +no_defs${isSouth}`;
 }
 
-export function wgs84ToUTM (wgs84Coord) {
+export function wgs84ToUTM(wgs84Coord: Wgs84Coordinate): UTMCoordinate {
   const [lonDeg, latDeg, h = 0] = wgs84Coord;
 
   if (latDeg > 84 || latDeg < -80) {
@@ -44,13 +48,20 @@ export function wgs84ToUTM (wgs84Coord) {
   const projDef = utmProjString(zone, hemisphere);
 
   // Transform x,y to UTM coordinates
-  const [x, y] = proj4("WGS84", projDef, [lonDeg, latDeg]);
+  const wgs84Point: [number, number] = [lonDeg, latDeg];
+  const [x, y] = proj4("WGS84", projDef, wgs84Point);
 
   return [x, y, h];
 }
 
-export function utmToWgs84 (x, y, zone, hemisphere) {
+export function utmToWgs84(
+  x: number,
+  y: number,
+  zone: number,
+  hemisphere: Hemisphere,
+): { lon: number; lat: number } {
   const projDef = utmProjString(zone, hemisphere);
-  const [lon, lat] = proj4(projDef, "WGS84", [x, y]);
+  const utmPoint: [number, number] = [x, y];
+  const [lon, lat] = proj4(projDef, "WGS84", utmPoint);
   return { lon, lat };
 }

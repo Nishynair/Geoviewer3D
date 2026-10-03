@@ -1,56 +1,44 @@
 import './App.css'
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import Box from '@mui/material/Box';
 import { useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { TEXT_BOX_MIN_WIDTH, TEXT_BOX_MAX_WIDTH } from './consts';
-import GeojsonEditor  from "./components/GeojsonEditor";
-import KlccFlat from "./assets/sampleJSON/klcc-flat.json"
+import GeojsonEditor from './components/GeojsonEditor';
+import KlccFlat from './assets/sampleJSON/klcc-flat.json';
 import Viewer3D from './components/Viewer';
-import MenuBar from './components/MenuBar'
+import MenuBar from './components/MenuBar';
 import MinimizeMaximizeButton from './components/Buttons/MinimizeMaximizeButton';
-
-// Simple debounce function to prevent constantly updating the GeoJSON
-const debounce = (fn, ms = 250) => {
-  let t;
-  return (...args) => {
-    clearTimeout(t);
-    t = setTimeout(() => fn(...args), ms);
-  };
-}
+import { inspectGeoJSON } from 'spatial-doctor';
+import {
+  createSpatialDocument,
+  getGeoJSONForViewer,
+  type SpatialDocument,
+} from './spatialDocument';
 
 function App() {
-  const [geojson, setGeojson] = useState(KlccFlat);
-  const [editingGeoJSON, setEditingGeoJSON] = useState(false);
-  const [stringJson, setStringJson] = useState(JSON.stringify(geojson, null, 2));
+  const [document, setDocument] = useState<SpatialDocument>(() =>
+    createSpatialDocument('klcc-flat.json', JSON.stringify(KlccFlat, null, 2), inspectGeoJSON),
+  );
+  const [viewerDocument, setViewerDocument] = useState(document);
   const theme = useTheme();
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'));
   const [expanded, setExpanded] = useState(false);
 
-  // debounce for 1 second before saving a new GeoJSON
-  const debouncedSet = useMemo(
-    () => debounce((val) =>{
-      setEditingGeoJSON(false)
-      return setGeojson(JSON.parse(val))
-    }, 1000),
-    []
-  );
-
   useEffect(() => {
-    if (stringJson) {
-      setEditingGeoJSON(true);
-      debouncedSet(stringJson);
-    }
-  }, [stringJson, debouncedSet]);
+    const timeout = window.setTimeout(() => setViewerDocument(document), 1000);
+    return () => window.clearTimeout(timeout);
+  }, [document]);
 
-  useEffect(() => {
-    if (editingGeoJSON) {
-      console.log('Waiting for changes...');
-    }
-    else{
-      console.log('Done');
-    }
-  }, [editingGeoJSON]);
+  const handleTextChange = (rawText: string) => {
+    setDocument((currentDocument) =>
+      createSpatialDocument(currentDocument.source.name, rawText, inspectGeoJSON),
+    );
+  };
+
+  const handleFileLoad = (name: string, rawText: string) => {
+    setDocument(createSpatialDocument(name, rawText, inspectGeoJSON));
+  };
 
   return (
     <Box
@@ -62,7 +50,10 @@ function App() {
         minHeight: "100%",
       }}
     >
-      <MenuBar text={stringJson} setText={setStringJson} />
+      <MenuBar
+        document={document}
+        onFileLoad={handleFileLoad}
+      />
 
       <Box
         sx={{
@@ -97,7 +88,7 @@ function App() {
           <MinimizeMaximizeButton expanded={expanded} setExpanded={setExpanded} isSmallScreen={isSmallScreen}/>
           
           <Viewer3D
-            geojson={geojson}
+            geojson={getGeoJSONForViewer(viewerDocument)}
             sx={{
               width: "100%",
               height: "100%",
@@ -118,8 +109,8 @@ function App() {
           }}
         >
           <GeojsonEditor
-            text={stringJson}
-            setText={setStringJson}
+            document={document}
+            onTextChange={handleTextChange}
             isCompact={isSmallScreen}
           />
         </Box>
