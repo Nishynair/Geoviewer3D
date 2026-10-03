@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "dev": "npm run dev --workspace @geoviewer3d/web --",
+    "test": "tsc -p apps/web/tsconfig.test.json && node --test apps/web/test/spatialDocument.test.mjs",
     "build": "npm run build --workspace @geoviewer3d/web --",
     "lint": "eslint .",
     "typecheck": "npm run typecheck --workspace @geoviewer3d/web --",

@@ -1,18 +1,19 @@
-import { useRef, useState, useEffect} from "react";
+import { useRef, useEffect } from "react";
 import type { SxProps, Theme } from "@mui/material/styles";
 import { Box } from "@mui/material";
 import Editor, { type OnMount } from "@monaco-editor/react";
-import { check } from "@placemarkio/check-geojson";
-import { HintError, type HintIssue } from "@placemarkio/check-geojson";
 import StatusAlert from "./StatusAlert"
 import { errorColor } from "../consts";
+import type { SpatialDocument } from "../spatialDocument";
+import type { HintIssue } from "@placemarkio/check-geojson";
 
 type MonacoEditor = Parameters<OnMount>[0];
 type Monaco = Parameters<OnMount>[1];
+const NO_VALIDATION_ISSUES: HintIssue[] = [];
 
 interface GeojsonEditorProps {
-  text: string;
-  setText: (text: string) => void;
+  document: SpatialDocument;
+  onTextChange: (text: string) => void;
   sx?: SxProps<Theme>;
   isCompact?: boolean;
 }
@@ -25,40 +26,19 @@ const extractColumnLineFromErrMsg = (errorMessage: string): [string | undefined,
 }
 
 export default function GeojsonEditor({
-  text,
-  setText,
+  document,
+  onTextChange,
   sx = {},
   isCompact = false,
 }: GeojsonEditorProps) {
   const editorRef = useRef<MonacoEditor | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
   const decorationIdsRef = useRef<string[]>([]);
-  const [errorMessages, setErrorMessages] = useState<HintIssue[]>([]);
-  const [currentErrorMessage, setCurrentErrorMessage] = useState<string | null>(null);
+  const errorMessages = document.parseError?.issues ?? NO_VALIDATION_ISSUES;
+  const currentErrorMessage = errorMessages[0]?.message ?? null;
   const lineNumbersMinChars = isCompact ? 2 : 4;
   const editorFontSize = isCompact ? 12 : 14;
   const minimapEnabled = !isCompact;
-
-  // Checks if GeoJSON is valid
-  useEffect(() => {
-    try{
-        // validate the geojson, if invalid throw errors
-        check(text);
-        // if no errors, reset the error prop, and parse it
-        setErrorMessages([]);
-        setCurrentErrorMessage(null);
-
-    }
-   catch (error: unknown){
-        if (error instanceof HintError) {
-          setErrorMessages(error.issues);
-          setCurrentErrorMessage(error.issues[0]?.message ?? null);
-        } else {
-          setErrorMessages([]);
-          setCurrentErrorMessage(error instanceof Error ? error.message : 'GeoJSON validation failed.');
-        }
-    }
-  }, [text]);
 
   useEffect(() => {
 
@@ -147,7 +127,7 @@ export default function GeojsonEditor({
 
     // Check if content changed
     editor.onDidChangeModelContent(() => {
-      setText(editor.getValue());
+      onTextChange(editor.getValue());
     });
   };
 
@@ -179,7 +159,7 @@ export default function GeojsonEditor({
             }}
         >
             <Editor
-                value={text}
+                value={document.source.rawText}
                 defaultLanguage="json"
                 onMount={onMount}
             />

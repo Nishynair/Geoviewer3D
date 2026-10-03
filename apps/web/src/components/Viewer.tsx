@@ -3,9 +3,10 @@ import * as Cesium from "cesium";
 import { Box, FormControlLabel, Switch } from "@mui/material";
 import type { GeoJSON as GeoJsonValue } from "geojson";
 import type { SxProps, Theme } from "@mui/material/styles";
+import { addAndFlyToIfCurrent } from "../utils/addViewerDataSource";
 
 interface Viewer3DProps {
-  geojson: GeoJsonValue;
+  geojson: GeoJsonValue | null;
   sx?: SxProps<Theme>;
 }
 
@@ -70,41 +71,77 @@ export default function Viewer3D({
 
   useEffect(() => {
     const viewer = viewerRef.current;
-    if (viewer) {
-      // Remove the previously loaded geojson if any
-      viewer.dataSources.removeAll();
+    if (!viewer) return;
 
-      Cesium.GeoJsonDataSource.load(geojson, {
-        clampToGround: false,
-        markerColor: Cesium.Color.RED, // for point features
-      }).then((ds) => {
-        viewer.dataSources.add(ds);
-        viewer.flyTo(ds).then(() => {
-          // Compute bounding sphere center & radius
-          const positions: Cesium.Cartesian3[] = [];
-          const time = Cesium.JulianDate.now();
-          ds.entities.values.forEach((entity) => {
-            if (entity.position) {
-              const position = entity.position.getValue(time);
-              if (position) positions.push(position);
-            } else if (entity.polygon) {
-              const hierarchy = entity.polygon.hierarchy?.getValue(time);
-              if (hierarchy) positions.push(...hierarchy.positions);
-            } else if (entity.polyline) {
-              const points = entity.polyline.positions?.getValue(time);
-              if (points) positions.push(...points);
-            }
-          });
+    // Remove the previously loaded GeoJSON when the current document is invalid.
+    viewer.dataSources.removeAll();
+    setRotationData(null);
+    if (!geojson) return;
 
-          const boundingSphere = Cesium.BoundingSphere.fromPoints(positions);
-          setRotationData({
-            center: boundingSphere.center,
-            radius: boundingSphere.radius * 2.0,
-          });
+    let cancelled = false;
+    let dataSource: Cesium.GeoJsonDataSource | null = null;
+    const isCurrent = () => !cancelled && !viewer.isDestroyed();
+
+    const loadGeoJSON = async () => {
+      try {
+        dataSource = await Cesium.GeoJsonDataSource.load(geojson, {
+          clampToGround: false,
+          markerColor: Cesium.Color.RED, // for point features
         });
-      });
-    }
-    
+        if (!isCurrent()) return;
+
+        const loadedDataSource = dataSource;
+        const addedAndViewed = await addAndFlyToIfCurrent(
+          loadedDataSource,
+          {
+            add: async (source) => {
+              await viewer.dataSources.add(source);
+            },
+            remove: (source) => {
+              if (!viewer.isDestroyed()) viewer.dataSources.remove(source, true);
+            },
+            flyTo: (source) => viewer.flyTo(source),
+          },
+          isCurrent,
+        );
+        if (!addedAndViewed || !isCurrent()) return;
+
+        // Compute bounding sphere center & radius
+        const positions: Cesium.Cartesian3[] = [];
+        const time = Cesium.JulianDate.now();
+        loadedDataSource.entities.values.forEach((entity) => {
+          if (entity.position) {
+            const position = entity.position.getValue(time);
+            if (position) positions.push(position);
+          } else if (entity.polygon) {
+            const hierarchy = entity.polygon.hierarchy?.getValue(time);
+            if (hierarchy) positions.push(...hierarchy.positions);
+          } else if (entity.polyline) {
+            const points = entity.polyline.positions?.getValue(time);
+            if (points) positions.push(...points);
+          }
+        });
+
+        const boundingSphere = Cesium.BoundingSphere.fromPoints(positions);
+        setRotationData({
+          center: boundingSphere.center,
+          radius: boundingSphere.radius * 2.0,
+        });
+      } catch (error: unknown) {
+        if (!cancelled) {
+          console.error('GeoJSON viewer load failed:', error instanceof Error ? error.message : error);
+        }
+      }
+    };
+
+    void loadGeoJSON();
+    return () => {
+      cancelled = true;
+      if (dataSource && !viewer.isDestroyed()) {
+        viewer.camera.cancelFlight();
+        viewer.dataSources.remove(dataSource, true);
+      }
+    };
   }, [geojson]);
 
   // Orbit logic
