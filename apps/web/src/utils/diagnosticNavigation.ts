@@ -40,6 +40,25 @@ function documentFeatures(geojson: GeoJSONValue): Feature[] {
   return [];
 }
 
+export function getGeoJSONFeature(
+  geojson: GeoJSONValue | null,
+  featureIndex: number,
+): Feature | null {
+  if (geojson === null || !Number.isSafeInteger(featureIndex) || featureIndex < 0) return null;
+  return documentFeatures(geojson)[featureIndex] ?? null;
+}
+
+export function getFeatureIndexFromProperties(
+  properties: Record<string, unknown> | undefined,
+  featureIndexProperty: string | null,
+): number | null {
+  if (!properties || !featureIndexProperty) return null;
+  const featureIndex = properties[featureIndexProperty];
+  return Number.isSafeInteger(featureIndex) && (featureIndex as number) >= 0
+    ? featureIndex as number
+    : null;
+}
+
 export function isValidSourceLocation(value: unknown): value is SourceTextLocation {
   if (typeof value !== 'object' || value === null) return false;
   const location = value as Partial<SourceTextLocation>;
@@ -127,6 +146,31 @@ export function findFeatureEntities<T>(
     const values = readProperties(entity);
     return values?.[featureIndexProperty] === featureIndex;
   });
+}
+
+export function isCurrentLoadedGeoJSON(
+  currentGeoJSON: GeoJSONValue | null,
+  loadedGeoJSON: GeoJSONValue,
+): boolean {
+  return currentGeoJSON !== null && currentGeoJSON === loadedGeoJSON;
+}
+
+export function findCurrentFeatureEntities<T>(
+  currentGeoJSON: GeoJSONValue | null,
+  loadedGeoJSON: GeoJSONValue,
+  entities: readonly T[],
+  featureIndex: number | null,
+  featureIndexProperty: string | null,
+  readProperties: FeaturePropertiesReader<T>,
+): T[] {
+  if (!isCurrentLoadedGeoJSON(currentGeoJSON, loadedGeoJSON)
+      || featureIndex === null
+      || featureIndexProperty === null
+      || resolveDiagnosticFeatureIndex(currentGeoJSON, { featureIndex }) === null) {
+    return [];
+  }
+
+  return findFeatureEntities(entities, featureIndex, featureIndexProperty, readProperties);
 }
 
 export function createDiagnosticNavigationPlan<T>(

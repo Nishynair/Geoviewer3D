@@ -2,17 +2,22 @@ import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
-import type { Diagnostic } from 'spatial-doctor';
+import { inspectGeoJSON, type Diagnostic } from 'spatial-doctor';
 import type { GeoJSON as GeoJsonValue } from 'geojson';
 import type { SpatialDocument } from '../spatialDocument';
 import {
   hasDiagnosticFeatureReference,
-  hasDiagnosticSourceLocation,
+  resolveDiagnosticFeatureIndex,
 } from '../utils/diagnosticNavigation';
+import { getGeoJSONFeature } from '../utils/diagnosticNavigation';
+import { resolveDiagnosticSourceLocation } from '../utils/featureSourceLocation';
 
 interface InspectorPanelProps {
   document: SpatialDocument;
   onSelectDiagnostic?: (diagnostic: Diagnostic) => void;
+  onShowFeatureSource?: () => void;
+  selectedFeatureIndex?: number | null;
+  selectedFeatureHasSourceLocation?: boolean;
 }
 
 const DIAGNOSTIC_DEFINITIONS: Record<Diagnostic['code'], { title: string; message: string }> = {
@@ -35,16 +40,111 @@ function Metric({ label, value }: { label: string; value: string | number }) {
   );
 }
 
+function SelectedFeatureDetails({
+  document,
+  featureIndex,
+  hasSourceLocation,
+  onSelectDiagnostic,
+  onShowFeatureSource,
+}: {
+  document: SpatialDocument;
+  featureIndex: number;
+  hasSourceLocation: boolean;
+  onSelectDiagnostic?: (diagnostic: Diagnostic) => void;
+  onShowFeatureSource?: () => void;
+}) {
+  if (document.report?.valid !== true || document.parsed === null) return null;
+  const feature = getGeoJSONFeature(document.parsed, featureIndex);
+  if (!feature) return null;
+
+  const report = inspectGeoJSON(feature);
+  const matchingDiagnostics = document.report.diagnostics.filter(
+    (diagnostic) => resolveDiagnosticFeatureIndex(document.parsed, diagnostic) === featureIndex,
+  );
+  const geometryEntries = report.valid
+    ? Object.entries(report.summary.geometryCounts).sort(([left], [right]) => left.localeCompare(right))
+    : [];
+  const geometryType = feature.geometry?.type ?? 'No geometry';
+
+  return (
+    <Box component="section" aria-labelledby="selected-feature-heading" sx={{ mb: 2 }}>
+      <Typography id="selected-feature-heading" component="h3" variant="subtitle1">
+        Selected feature
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+        Feature {featureIndex + 1} · collection index {featureIndex}
+      </Typography>
+      <Box component="dl" sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', columnGap: 2, m: 0 }}>
+        <Metric label="Feature ID" value={feature.id === undefined ? 'No ID' : String(feature.id)} />
+        <Metric label="Geometry" value={geometryType} />
+        {report.valid && (
+          <>
+            <Metric label="Coordinate tuples" value={report.coordinates.coordinateCount} />
+            <Metric label="Dimensions" value={report.coordinates.dimensions} />
+            <Metric
+              label="Bounds"
+              value={report.coordinates.bounds
+                ? `X ${report.coordinates.bounds.minX} to ${report.coordinates.bounds.maxX}; Y ${report.coordinates.bounds.minY} to ${report.coordinates.bounds.maxY}`
+                : 'No coordinate bounds'}
+            />
+            <Metric
+              label="Z range"
+              value={report.coordinates.zRange
+                ? `${report.coordinates.zRange.min} to ${report.coordinates.zRange.max}`
+                : 'No Z values'}
+            />
+          </>
+        )}
+      </Box>
+      {geometryEntries.length > 0 && (
+        <Box component="ul" aria-label="Selected feature geometry counts" sx={{ listStyle: 'none', p: 0, m: 0, mt: 1 }}>
+          {geometryEntries.map(([geometry, count]) => (
+            <Box component="li" key={geometry} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5 }}>
+              <Typography variant="body2">{geometry}</Typography>
+              <Typography variant="body2" color="text.secondary">{count}</Typography>
+            </Box>
+          ))}
+        </Box>
+      )}
+      {!hasSourceLocation && (
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          No useful source location is available for this feature.
+        </Typography>
+      )}
+      {hasSourceLocation && onShowFeatureSource && (
+        <Button size="small" sx={{ mt: 1 }} onClick={onShowFeatureSource}>
+          Show selected feature in source
+        </Button>
+      )}
+      <Typography component="h4" variant="body2" sx={{ mt: 1.5, fontWeight: 600 }}>
+        Feature diagnostics
+      </Typography>
+      {matchingDiagnostics.length === 0 ? (
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+          No feature-specific diagnostics in this report.
+        </Typography>
+      ) : (
+        <DiagnosticList
+          diagnostics={matchingDiagnostics}
+          onSelectDiagnostic={onSelectDiagnostic}
+          featureGeoJSON={document.parsed}
+          sourceText={document.source.rawText}
+        />
+      )}
+    </Box>
+  );
+}
+
 function DiagnosticList({
   diagnostics,
   onSelectDiagnostic,
   featureGeoJSON,
-  sourceTextLength,
+  sourceText,
 }: {
   diagnostics: Diagnostic[];
   onSelectDiagnostic?: (diagnostic: Diagnostic) => void;
   featureGeoJSON: GeoJsonValue | null;
-  sourceTextLength: number;
+  sourceText: string;
 }) {
   if (diagnostics.length === 0) {
     return (
@@ -59,7 +159,7 @@ function DiagnosticList({
       {diagnostics.map((diagnostic, index) => {
         const definition = DIAGNOSTIC_DEFINITIONS[diagnostic.code];
         const hasFeature = hasDiagnosticFeatureReference(diagnostic, featureGeoJSON);
-        const hasSource = hasDiagnosticSourceLocation(diagnostic, sourceTextLength);
+        const hasSource = resolveDiagnosticSourceLocation(sourceText, featureGeoJSON, diagnostic) !== null;
         return (
           <Box component="li" key={`${diagnostic.code}-${index}`} sx={{ mt: 1.5 }}>
             <Alert severity={diagnostic.severity}>
@@ -93,7 +193,13 @@ function DiagnosticList({
   );
 }
 
-export default function InspectorPanel({ document, onSelectDiagnostic }: InspectorPanelProps) {
+export default function InspectorPanel({
+  document,
+  onSelectDiagnostic,
+  onShowFeatureSource,
+  selectedFeatureIndex = null,
+  selectedFeatureHasSourceLocation = false,
+}: InspectorPanelProps) {
   if (document.parseError?.kind === 'json-syntax') {
     return (
       <Box component="section" aria-labelledby="inspector-heading" sx={{ height: '100%', overflowY: 'auto', p: 2 }}>
@@ -131,7 +237,7 @@ export default function InspectorPanel({ document, onSelectDiagnostic }: Inspect
           diagnostics={document.report.diagnostics}
           onSelectDiagnostic={onSelectDiagnostic}
           featureGeoJSON={null}
-          sourceTextLength={document.source.rawText.length}
+          sourceText={document.source.rawText}
         />
       </Box>
     );
@@ -157,6 +263,16 @@ export default function InspectorPanel({ document, onSelectDiagnostic }: Inspect
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, overflowWrap: 'anywhere' }}>
         {document.source.name}
       </Typography>
+
+      {selectedFeatureIndex !== null && (
+        <SelectedFeatureDetails
+          document={document}
+          featureIndex={selectedFeatureIndex}
+          hasSourceLocation={selectedFeatureHasSourceLocation}
+          onSelectDiagnostic={onSelectDiagnostic}
+          onShowFeatureSource={onShowFeatureSource}
+        />
+      )}
 
       {coordinates.dimensions === 'mixed' && (
         <Alert severity="warning" sx={{ mb: 1.5 }}>
@@ -206,7 +322,7 @@ export default function InspectorPanel({ document, onSelectDiagnostic }: Inspect
         diagnostics={document.report.diagnostics}
         onSelectDiagnostic={onSelectDiagnostic}
         featureGeoJSON={document.parsed}
-        sourceTextLength={document.source.rawText.length}
+        sourceText={document.source.rawText}
       />
 
     </Box>

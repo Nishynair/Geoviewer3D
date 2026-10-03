@@ -19,28 +19,67 @@ import {
   getGeoJSONForViewer,
   type SpatialDocument,
 } from './spatialDocument';
+import {
+  resolveDiagnosticFeatureIndex,
+  type SourceTextLocation,
+} from './utils/diagnosticNavigation';
+import {
+  findFeatureSourceLocation,
+  resolveDiagnosticSourceLocation,
+} from './utils/featureSourceLocation';
+
+interface WorkspaceSelection {
+  document: SpatialDocument;
+  featureIndex: number | null;
+  diagnostic: Diagnostic | null;
+  sourceLocation: SourceTextLocation | null;
+  requestId: number;
+}
 
 function App() {
   const [document, setDocument] = useState<SpatialDocument>(() =>
     createSpatialDocument('klcc-flat.json', JSON.stringify(KlccFlat, null, 2), inspectGeoJSON),
   );
   const [viewerDocument, setViewerDocument] = useState(document);
-  const [navigation, setNavigation] = useState<{
-    document: SpatialDocument;
-    diagnostic: Diagnostic;
-    requestId: number;
-  } | null>(null);
-  const navigationSequence = useRef(0);
+  const [selection, setSelection] = useState<WorkspaceSelection | null>(null);
+  const selectionSequence = useRef(0);
   const theme = useTheme();
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'));
   const [expanded, setExpanded] = useState(false);
   const [rightPanel, setRightPanel] = useState<'editor' | 'inspector'>('editor');
-  const activeNavigation = navigation?.document === document ? navigation : null;
+  const activeSelection = selection?.document === document ? selection : null;
 
   const handleSelectDiagnostic = (diagnostic: Diagnostic) => {
-    navigationSequence.current += 1;
-    setNavigation({ document, diagnostic, requestId: navigationSequence.current });
-    if (diagnostic.sourceLocation) setRightPanel('editor');
+    selectionSequence.current += 1;
+    const featureIndex = resolveDiagnosticFeatureIndex(document.parsed, diagnostic);
+    const sourceLocation = resolveDiagnosticSourceLocation(
+      document.source.rawText,
+      document.parsed,
+      diagnostic,
+    );
+    setSelection({
+      document,
+      featureIndex,
+      diagnostic,
+      sourceLocation,
+      requestId: selectionSequence.current,
+    });
+    if (sourceLocation) setRightPanel('editor');
+  };
+
+  const handleFeatureSelect = (featureIndex: number) => {
+    selectionSequence.current += 1;
+    const sourceLocation = document.parsed === null
+      ? null
+      : findFeatureSourceLocation(document.source.rawText, document.parsed, featureIndex);
+    setSelection({
+      document,
+      featureIndex,
+      diagnostic: null,
+      sourceLocation,
+      requestId: selectionSequence.current,
+    });
+    setRightPanel('inspector');
   };
 
   useEffect(() => {
@@ -107,12 +146,13 @@ function App() {
           
           <Viewer3D
             geojson={getGeoJSONForViewer(viewerDocument)}
-            selectedDiagnostic={viewerDocument === document
-              ? activeNavigation?.diagnostic ?? null
+            selectedFeatureIndex={viewerDocument === document
+              ? activeSelection?.featureIndex ?? null
               : null}
             navigationRequestId={viewerDocument === document
-              ? activeNavigation?.requestId ?? 0
+              ? activeSelection?.requestId ?? 0
               : 0}
+            onFeatureSelect={viewerDocument === document ? handleFeatureSelect : undefined}
             sx={{
               width: "100%",
               height: "100%",
@@ -154,8 +194,8 @@ function App() {
               document={document}
               onTextChange={handleTextChange}
               isCompact={isSmallScreen}
-              sourceLocation={activeNavigation?.diagnostic.sourceLocation ?? null}
-              sourceLocationRequestId={activeNavigation?.requestId ?? 0}
+              sourceLocation={activeSelection?.sourceLocation ?? null}
+              sourceLocationRequestId={activeSelection?.requestId ?? 0}
             />
           </Box>
           <Box
@@ -168,6 +208,9 @@ function App() {
             <InspectorPanel
               document={document}
               onSelectDiagnostic={handleSelectDiagnostic}
+              onShowFeatureSource={() => setRightPanel('editor')}
+              selectedFeatureIndex={activeSelection?.featureIndex ?? null}
+              selectedFeatureHasSourceLocation={Boolean(activeSelection?.sourceLocation)}
             />
           </Box>
         </Box>

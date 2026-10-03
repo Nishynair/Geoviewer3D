@@ -6,11 +6,17 @@ import {
   createDiagnosticNavigationPlan,
   focusDiagnosticFeature,
   FEATURE_INDEX_PROPERTY,
+  findCurrentFeatureEntities,
   findFeatureEntities,
+  getFeatureIndexFromProperties,
+  getGeoJSONFeature,
   indexFeaturesForViewer,
   resolveDiagnosticFeatureIndex,
 } from '../src/utils/diagnosticNavigation.ts';
-import { revealSourceLocation } from '../src/utils/editorLocation.ts';
+import {
+  clearSourceLocationSelection,
+  revealSourceLocation,
+} from '../src/utils/editorLocation.ts';
 import { createSpatialDocument, getGeoJSONForViewer } from '../src/spatialDocument.ts';
 
 function propertyEntity(featureIndex) {
@@ -101,6 +107,23 @@ test('feature references resolve by index or unique GeoJSON id without inventing
   );
 });
 
+test('map-pick metadata resolves only a valid indexed Feature in the canonical document', () => {
+  const collection = {
+    type: 'FeatureCollection',
+    features: [
+      { type: 'Feature', properties: null, geometry: null },
+    ],
+  };
+
+  assert.equal(getFeatureIndexFromProperties({ [FEATURE_INDEX_PROPERTY]: 0 }, FEATURE_INDEX_PROPERTY), 0);
+  assert.equal(getFeatureIndexFromProperties({ [FEATURE_INDEX_PROPERTY]: -1 }, FEATURE_INDEX_PROPERTY), null);
+  assert.equal(getFeatureIndexFromProperties({}, FEATURE_INDEX_PROPERTY), null);
+  assert.equal(getFeatureIndexFromProperties({ [FEATURE_INDEX_PROPERTY]: 0 }, null), null);
+  assert.deepEqual(getGeoJSONFeature(collection, 0), collection.features[0]);
+  assert.equal(getGeoJSONFeature(collection, 1), null);
+  assert.equal(getGeoJSONFeature({ type: 'Point', coordinates: [0, 1] }, 0), null);
+});
+
 test('duplicate feature ids are ambiguous and do not select the wrong feature', () => {
   const collection = {
     type: 'FeatureCollection',
@@ -129,6 +152,29 @@ test('all Cesium entities carrying a feature index are returned together', () =>
       readProperties,
     ),
     [firstGeometryEntity, secondGeometryEntity],
+  );
+});
+
+test('feature selection ignores entities loaded for an older document until the current source is ready', () => {
+  const documentA = { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: null }] };
+  const documentB = { type: 'FeatureCollection', features: [
+    { type: 'Feature', properties: {}, geometry: null },
+    { type: 'Feature', properties: {}, geometry: null },
+  ] };
+  const entitiesA = [propertyEntity(0)];
+  const entitiesB = [propertyEntity(0), propertyEntity(1)];
+
+  assert.deepEqual(
+    findCurrentFeatureEntities(documentB, documentA, entitiesA, 0, FEATURE_INDEX_PROPERTY, readProperties),
+    [],
+  );
+  assert.deepEqual(
+    findCurrentFeatureEntities(documentB, documentB, entitiesB, 1, FEATURE_INDEX_PROPERTY, readProperties),
+    [entitiesB[1]],
+  );
+  assert.deepEqual(
+    findCurrentFeatureEntities(documentB, documentB, entitiesB, null, FEATURE_INDEX_PROPERTY, readProperties),
+    [],
   );
 });
 
@@ -375,4 +421,21 @@ test('unavailable editor models and out-of-range locations are safely ignored', 
   assert.equal(revealSourceLocation(editor, { start: 5, end: 6 }), false);
   assert.equal(revealSourceLocation({ ...editor, getModel: () => null }, { start: 0, end: 1 }), false);
   assert.deepEqual(calls, []);
+});
+
+test('clearing a feature source link collapses the old text selection without moving the cursor', () => {
+  const calls = [];
+  const editor = {
+    getPosition: () => ({ lineNumber: 4, column: 7 }),
+    setSelection: (range) => calls.push(range),
+  };
+
+  clearSourceLocationSelection(editor);
+
+  assert.deepEqual(calls, [{
+    startLineNumber: 4,
+    startColumn: 7,
+    endLineNumber: 4,
+    endColumn: 7,
+  }]);
 });

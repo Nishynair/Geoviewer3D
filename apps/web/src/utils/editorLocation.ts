@@ -19,9 +19,21 @@ interface EditorModel {
 
 export interface SourceLocationEditor {
   getModel(): EditorModel | null;
+  getPosition?(): EditorPosition | null;
   setSelection(range: EditorRange): void;
   revealRangeInCenter(range: EditorRange): void;
   focus(): void;
+}
+
+export function clearSourceLocationSelection(editor: SourceLocationEditor): void {
+  const position = editor.getPosition?.();
+  if (!position) return;
+  editor.setSelection({
+    startLineNumber: position.lineNumber,
+    startColumn: position.column,
+    endLineNumber: position.lineNumber,
+    endColumn: position.column,
+  });
 }
 
 export function revealSourceLocation(

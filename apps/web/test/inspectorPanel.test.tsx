@@ -38,7 +38,11 @@ function renderWithDiagnostic(
   );
 }
 
-function renderValidFeatureDiagnostic(): string {
+function renderValidFeatureDiagnostic(
+  selectedFeatureIndex: number | null = null,
+  selectedFeatureHasSourceLocation = false,
+  sourceLocation: { start: number; end: number } = { start: 2, end: 18 },
+): string {
   const rawText = JSON.stringify({
     type: 'Feature',
     id: 'tower',
@@ -57,12 +61,18 @@ function renderValidFeatureDiagnostic(): string {
         message: 'Feature-scoped diagnostic fixture',
         featureId: 'tower',
         featureIndex: 0,
-        sourceLocation: { start: 2, end: 18 },
+        sourceLocation,
       }],
     }),
   );
   return renderToStaticMarkup(
-    <InspectorPanel document={document} onSelectDiagnostic={() => undefined} />,
+    <InspectorPanel
+      document={document}
+      onSelectDiagnostic={() => undefined}
+      selectedFeatureIndex={selectedFeatureIndex}
+      selectedFeatureHasSourceLocation={selectedFeatureHasSourceLocation}
+      onShowFeatureSource={() => undefined}
+    />,
   );
 }
 
@@ -205,5 +215,36 @@ describe('InspectorPanel', () => {
     expect(markup).toContain('Feature count 1');
     expect(markup).toContain('Show feature and source');
     expect(markup).not.toContain('not valid GeoJSON');
+  });
+
+  it('offers source navigation when a bad diagnostic range falls back to the referenced feature span', () => {
+    const markup = textContent(renderValidFeatureDiagnostic(
+      null,
+      false,
+      { start: 10000, end: 10001 },
+    ));
+
+    expect(markup).toContain('Show feature and source');
+    expect(markup).not.toContain('Show feature</');
+  });
+
+  it('shows selected feature statistics and states when a source link is unavailable', () => {
+    const markup = textContent(renderValidFeatureDiagnostic(0, false));
+
+    expect(markup).toContain('Selected feature');
+    expect(markup).toContain('Feature 1 · collection index 0');
+    expect(markup).toContain('Feature ID tower');
+    expect(markup).toContain('Geometry Point');
+    expect(markup).toContain('Coordinate tuples 1');
+    expect(markup).toContain('Dimensions XY');
+    expect(markup).toContain('No useful source location is available for this feature.');
+  });
+
+  it('offers a direct source action for the selected feature when its source span is available', () => {
+    const markup = textContent(renderValidFeatureDiagnostic(0, true));
+
+    expect(markup).toContain('Selected feature');
+    expect(markup).toContain('Show selected feature in source');
+    expect(markup).not.toContain('No useful source location is available for this feature.');
   });
 });

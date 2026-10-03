@@ -7,7 +7,7 @@ import { errorColor } from "../consts";
 import type { SpatialDocument } from "../spatialDocument";
 import type { HintIssue } from "@placemarkio/check-geojson";
 import type { SourceTextLocation } from "../utils/diagnosticNavigation";
-import { revealSourceLocation } from "../utils/editorLocation";
+import { clearSourceLocationSelection, revealSourceLocation } from "../utils/editorLocation";
 
 type MonacoEditor = Parameters<OnMount>[0];
 type Monaco = Parameters<OnMount>[1];
@@ -40,6 +40,7 @@ export default function GeojsonEditor({
   const editorRef = useRef<MonacoEditor | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
   const decorationIdsRef = useRef<string[]>([]);
+  const locationRequestRef = useRef(0);
   const errorMessages = document.parseError?.issues ?? NO_VALIDATION_ISSUES;
   const currentErrorMessage = document.parseError?.message ?? null;
   const lineNumbersMinChars = isCompact ? 2 : 4;
@@ -103,7 +104,10 @@ export default function GeojsonEditor({
 
   useEffect(() => {
     const editor = editorRef.current;
-    if (editor && sourceLocation) revealSourceLocation(editor, sourceLocation);
+    if (!editor || sourceLocationRequestId === locationRequestRef.current) return;
+    locationRequestRef.current = sourceLocationRequestId;
+    if (sourceLocation) revealSourceLocation(editor, sourceLocation);
+    else clearSourceLocationSelection(editor);
   }, [sourceLocation, sourceLocationRequestId]);
 
   useEffect(() => {
@@ -122,6 +126,7 @@ export default function GeojsonEditor({
   const onMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
+    locationRequestRef.current = sourceLocationRequestId;
 
     if (sourceLocation) revealSourceLocation(editor, sourceLocation);
 
