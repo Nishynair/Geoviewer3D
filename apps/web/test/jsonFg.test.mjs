@@ -30,7 +30,6 @@ test('recognizes Core JSON-FG, inspects ordinary geometry, and preserves CRS sco
       {
         type: 'Feature',
         id: 'tower',
-        coordRefSys: { type: 'Reference', href: WGS84_3D, epoch: 2020.5 },
         properties: { name: 'Tower' },
         geometry: { type: 'Point', coordinates: [101.7, 3.1, 120] },
       },
@@ -50,7 +49,6 @@ test('recognizes Core JSON-FG, inspects ordinary geometry, and preserves CRS sco
   assert.deepEqual(getGeoJSONForViewer(document), document.parsed);
   assert.deepEqual(document.jsonFg.coordRefSysDeclarations, [
     { scope: 'root', value: WEB_MERCATOR },
-    { scope: 'feature 2', value: { type: 'Reference', href: WGS84_3D, epoch: 2020.5 } },
   ]);
   assert.match(document.jsonFg.geometryCrsDescription, /CRS84.*CRS84h/);
   assert.deepEqual(document.jsonFg.unsupportedConstructs, []);
@@ -61,6 +59,7 @@ test('identifies JSON-FG Plus as a profile link and reports native place while p
   const input = {
     type: 'Feature',
     conformsTo: [CORE],
+    coordRefSys: { type: 'Reference', href: WGS84_3D, epoch: 2020.5 },
     links: [{ rel: 'profile', href: JSON_FG_PLUS }],
     id: 13,
     featureType: 'Airport',
@@ -78,6 +77,9 @@ test('identifies JSON-FG Plus as a profile link and reports native place while p
   assert.equal(document.parsed?.geometry?.coordinates[0], -6.258);
   assert.equal(document.parsed?.place, undefined);
   assert.deepEqual(document.jsonFg.profileUris, [JSON_FG_PLUS]);
+  assert.deepEqual(document.jsonFg.coordRefSysDeclarations, [
+    { scope: 'root', value: { type: 'Reference', href: WGS84_3D, epoch: 2020.5 } },
+  ]);
   assert.ok(document.jsonFg.unsupportedConstructs.some((item) => item.includes('place')));
   assert.ok(document.jsonFg.unsupportedConstructs.some((item) => item.includes('featureType')));
   assert.equal(document.source.rawText, rawText);
@@ -126,6 +128,37 @@ test('reports missing root Core declaration and illegal child conformsTo as inva
   assert.equal(childConformance.parseError?.kind, 'invalid-jsonfg');
   assert.match(childConformance.parseError?.message, /only on the JSON-FG root object/i);
   assert.equal(getGeoJSONForViewer(childConformance), null);
+});
+
+test('does not allow coordRefSys on a child Feature inside a JSON-FG FeatureCollection', () => {
+  const document = createSpatialDocument('child-crs.jsonfg', JSON.stringify({
+    type: 'FeatureCollection',
+    conformsTo: [CORE],
+    features: [{
+      type: 'Feature',
+      coordRefSys: WEB_MERCATOR,
+      properties: {},
+      geometry: { type: 'Point', coordinates: [1, 2] },
+    }],
+  }));
+
+  assert.equal(document.format, 'jsonfg');
+  assert.equal(document.parseError?.kind, 'invalid-jsonfg');
+  assert.match(document.parseError?.message, /coordRefSys.*JSON-FG root/i);
+  assert.equal(getGeoJSONForViewer(document), null);
+});
+
+test('uses the .jsonfg filename to keep parseable non-JSON-FG content in the JSON-FG validation path', () => {
+  const document = createSpatialDocument('broken.jsonfg', JSON.stringify({
+    type: 'Feature',
+    properties: {},
+    geometry: { type: 'Point', coordinates: [1, 2] },
+  }));
+
+  assert.equal(document.format, 'jsonfg');
+  assert.equal(document.parseError?.kind, 'invalid-jsonfg');
+  assert.match(document.parseError?.message, /root.*conformsTo/i);
+  assert.equal(getGeoJSONForViewer(document), null);
 });
 
 test('rejects a JSON-FG Plus feature with place but no GeoJSON fallback geometry', () => {

@@ -3,6 +3,7 @@ import type { GeoJSON as GeoJsonValue } from 'geojson';
 import type { InspectionReport } from 'spatial-doctor';
 import {
   emptyJsonFgInfo,
+  hasJsonFgFilename,
   hasJsonFgSourceContext,
   inspectJsonFg,
   isJsonFgCandidate,
@@ -138,7 +139,7 @@ export function createSpatialDocument(
     };
   }
 
-  if (isJsonFgCandidate(parsed)) {
+  if (hasJsonFgFilename(name) || isJsonFgCandidate(parsed)) {
     const adaptation = inspectJsonFg(parsed, inspectGeoJSON);
     if (adaptation.status === 'valid') {
       return {

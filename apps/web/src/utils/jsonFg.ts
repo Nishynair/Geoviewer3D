@@ -111,8 +111,12 @@ export function isJsonFgCandidate(value: unknown): boolean {
   return hasJsonFgSpecificFeatureMember(value);
 }
 
+export function hasJsonFgFilename(name: string): boolean {
+  return /\.(?:jsonfg|json-fg)$/i.test(name);
+}
+
 export function hasJsonFgSourceContext(name: string, rawText: string): boolean {
-  if (/\.(?:jsonfg|json-fg)$/i.test(name)) return true;
+  if (hasJsonFgFilename(name)) return true;
   return rawText.includes('conformsTo') && rawText.includes(JSON_FG_CONFORMANCE_PREFIX);
 }
 
@@ -271,6 +275,9 @@ export function inspectJsonFg(value: unknown, inspectGeoJSON: InspectGeoJSON): J
     }
     if (feature !== value && hasOwn(feature, 'conformsTo')) {
       return invalid(info, 'The `conformsTo` member may appear only on the JSON-FG root object.');
+    }
+    if (feature !== value && hasOwn(feature, 'coordRefSys')) {
+      return invalid(info, 'The `coordRefSys` member may appear only on the JSON-FG root object.');
     }
     if (hasOwn(feature, 'place') && feature.place !== null && isJsonFgPlus && feature.geometry == null) {
       return invalid(info, `JSON-FG Plus requires the geometry member to be non-null whenever ${scope} has a non-null place.`);
