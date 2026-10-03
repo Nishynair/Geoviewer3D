@@ -1,5 +1,6 @@
 import './App.css'
 import { useEffect, useState, useMemo } from 'react';
+import type { GeoJSON as GeoJsonValue } from 'geojson';
 import Box from '@mui/material/Box';
 import { useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
@@ -11,16 +12,16 @@ import MenuBar from './components/MenuBar'
 import MinimizeMaximizeButton from './components/Buttons/MinimizeMaximizeButton';
 
 // Simple debounce function to prevent constantly updating the GeoJSON
-const debounce = (fn, ms = 250) => {
-  let t;
-  return (...args) => {
-    clearTimeout(t);
-    t = setTimeout(() => fn(...args), ms);
+const debounce = (fn: (value: string) => void, ms = 250) => {
+  let timer: ReturnType<typeof setTimeout>;
+  return (value: string) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(value), ms);
   };
-}
+};
 
 function App() {
-  const [geojson, setGeojson] = useState(KlccFlat);
+  const [geojson, setGeojson] = useState<GeoJsonValue>(KlccFlat as GeoJsonValue);
   const [editingGeoJSON, setEditingGeoJSON] = useState(false);
   const [stringJson, setStringJson] = useState(JSON.stringify(geojson, null, 2));
   const theme = useTheme();
@@ -29,9 +30,9 @@ function App() {
 
   // debounce for 1 second before saving a new GeoJSON
   const debouncedSet = useMemo(
-    () => debounce((val) =>{
+    () => debounce((val: string) => {
       setEditingGeoJSON(false)
-      return setGeojson(JSON.parse(val))
+      return setGeojson(JSON.parse(val) as GeoJsonValue)
     }, 1000),
     []
   );

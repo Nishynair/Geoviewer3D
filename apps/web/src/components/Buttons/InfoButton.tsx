@@ -18,7 +18,7 @@ export default function InfoButton() {
   return (
     <>
       <Tooltip title="About">
-        <IconButton variant="contained" component="span" onClick={() => setOpen(true)}>
+        <IconButton component="span" onClick={() => setOpen(true)}>
           <InfoOutlineIcon sx={{ color:"white" }} />
         </IconButton>
       </Tooltip>

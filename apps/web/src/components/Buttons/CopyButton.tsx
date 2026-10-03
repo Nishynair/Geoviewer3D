@@ -3,7 +3,11 @@ import { IconButton, Tooltip } from "@mui/material";
 import CopyAllOutlinedIcon from '@mui/icons-material/CopyAllOutlined';
 import SnackbarAlert from "../SnackbarAlert";
 
-export default function CopyButton({ text }) {
+interface CopyButtonProps {
+  text: string;
+}
+
+export default function CopyButton({ text }: CopyButtonProps) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -19,13 +23,15 @@ export default function CopyButton({ text }) {
   };
 
   return (
-    <Tooltip title="Copy to clipboard">
-      <IconButton variant="contained" component="span" onClick={handleCopy}>
-        <CopyAllOutlinedIcon sx={{ color:"white" }}/>
-      </IconButton>
+    <>
+      <Tooltip title="Copy to clipboard">
+        <IconButton component="span" onClick={handleCopy}>
+          <CopyAllOutlinedIcon sx={{ color: "white" }} />
+        </IconButton>
+      </Tooltip>
       {copied && <SnackbarAlert 
         message="Copied"
       />}
-    </Tooltip>
+    </>
   );
 }

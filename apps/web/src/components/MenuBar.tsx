@@ -1,14 +1,20 @@
-import { 
+import {
   AppBar, 
   Toolbar, 
   Typography
 } from "@mui/material";
+import type { Dispatch, SetStateAction } from "react";
 import UploadButton from "./Buttons/UploadButton";
 import DownloadButton from "./Buttons/DownloadButton";
 import CopyButton from "./Buttons/CopyButton";
 import InfoButton from "./Buttons/InfoButton";
 
-export default function MenuBar ({text, setText}) {
+interface MenuBarProps {
+  text: string;
+  setText: Dispatch<SetStateAction<string>>;
+}
+
+export default function MenuBar({ text, setText }: MenuBarProps) {
   return (
     <AppBar position="static" >
       <Toolbar variant="dense">

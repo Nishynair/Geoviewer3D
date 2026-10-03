@@ -1,19 +1,35 @@
 import { useEffect, useRef, useState } from "react";
 import * as Cesium from "cesium";
 import { Box, FormControlLabel, Switch } from "@mui/material";
+import type { GeoJSON as GeoJsonValue } from "geojson";
+import type { SxProps, Theme } from "@mui/material/styles";
+
+interface Viewer3DProps {
+  geojson: GeoJsonValue;
+  sx?: SxProps<Theme>;
+}
+
+interface RotationData {
+  center: Cesium.Cartesian3;
+  radius: number;
+}
 
 export default function Viewer3D({
   geojson,
-}) {
-  const containerRef = useRef(null);
-  const viewerRef = useRef(null);
+  sx,
+}: Viewer3DProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const viewerRef = useRef<Cesium.Viewer | null>(null);
   const [isRotating, setIsRotating] = useState(true);
-  const [rotationData, setRotationData] = useState(null);
+  const [rotationData, setRotationData] = useState<RotationData | null>(null);
 
   useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
     Cesium.Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_TOKEN;
 
-    const viewer = new Cesium.Viewer(containerRef.current, {
+    const viewer = new Cesium.Viewer(container, {
       // imagery: default is Ion/Bing world imagery
       terrain: Cesium.Terrain.fromWorldTerrain({
         requestVertexNormals: true,
@@ -36,15 +52,14 @@ export default function Viewer3D({
       try {
         const osmBuildings = await Cesium.Cesium3DTileset.fromIonAssetId(96188);
         viewer.scene.primitives.add(osmBuildings);
-        await osmBuildings.readyPromise;
-      } catch (e) {
-        console.warn("OSM Buildings not loaded:", e?.message || e);
+      } catch (error: unknown) {
+        console.warn("OSM Buildings not loaded:", error instanceof Error ? error.message : error);
       }
     })();
 
     // Make the canvas follow its container size
     const ro = new ResizeObserver(() => viewer.resize());
-    ro.observe(containerRef.current);
+    ro.observe(container);
 
     return () => {
       ro.disconnect();
@@ -54,9 +69,8 @@ export default function Viewer3D({
 
 
   useEffect(() => {
-    if (viewerRef?.current?.dataSources){
-
-      const viewer = viewerRef.current;
+    const viewer = viewerRef.current;
+    if (viewer) {
       // Remove the previously loaded geojson if any
       viewer.dataSources.removeAll();
 
@@ -67,17 +81,18 @@ export default function Viewer3D({
         viewer.dataSources.add(ds);
         viewer.flyTo(ds).then(() => {
           // Compute bounding sphere center & radius
-          const positions = [];
+          const positions: Cesium.Cartesian3[] = [];
           const time = Cesium.JulianDate.now();
           ds.entities.values.forEach((entity) => {
             if (entity.position) {
-              positions.push(entity.position.getValue(time));
+              const position = entity.position.getValue(time);
+              if (position) positions.push(position);
             } else if (entity.polygon) {
-              const hierarchy = entity.polygon.hierarchy.getValue(time);
-              positions.push(...hierarchy.positions);
+              const hierarchy = entity.polygon.hierarchy?.getValue(time);
+              if (hierarchy) positions.push(...hierarchy.positions);
             } else if (entity.polyline) {
-              const pts = entity.polyline.positions.getValue(time);
-              positions.push(...pts);
+              const points = entity.polyline.positions?.getValue(time);
+              if (points) positions.push(...points);
             }
           });
 
@@ -123,7 +138,7 @@ export default function Viewer3D({
   }, [isRotating, rotationData]);
 
  return (
-    <Box sx={{ position: "relative", height: "100%" }}>
+    <Box sx={{ position: "relative", height: "100%", ...sx }}>
       <Box
         ref={containerRef}
         sx={{

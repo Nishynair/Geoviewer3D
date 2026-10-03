@@ -3,8 +3,19 @@ import KeyboardDoubleArrowLeftIcon from '@mui/icons-material/KeyboardDoubleArrow
 import KeyboardDoubleArrowRightIcon from '@mui/icons-material/KeyboardDoubleArrowRight';
 import KeyboardDoubleArrowUpIcon from '@mui/icons-material/KeyboardDoubleArrowUp';
 import KeyboardDoubleArrowDownIcon from '@mui/icons-material/KeyboardDoubleArrowDown';
+import type { Dispatch, SetStateAction } from 'react';
 
-export default function MinimizeMaximizeButton({ expanded, setExpanded, isSmallScreen }) {
+interface MinimizeMaximizeButtonProps {
+  expanded: boolean;
+  setExpanded: Dispatch<SetStateAction<boolean>>;
+  isSmallScreen: boolean;
+}
+
+export default function MinimizeMaximizeButton({
+  expanded,
+  setExpanded,
+  isSmallScreen,
+}: MinimizeMaximizeButtonProps) {
   
   const handleToggleExpand = () => {
     setExpanded((prev) => !prev);
@@ -15,7 +26,6 @@ export default function MinimizeMaximizeButton({ expanded, setExpanded, isSmallS
       <IconButton
         onClick={handleToggleExpand}
         size="small"
-        variant="contained"
         component="span"
         sx={{
           position: "absolute",
@@ -49,7 +59,6 @@ export default function MinimizeMaximizeButton({ expanded, setExpanded, isSmallS
     </Tooltip>
   );
 };
-
 
 
 
