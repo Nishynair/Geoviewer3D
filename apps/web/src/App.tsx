@@ -19,22 +19,12 @@ import {
   getGeoJSONForViewer,
   type SpatialDocument,
 } from './spatialDocument';
+import { resolveDiagnosticFeatureIndex } from './utils/diagnosticNavigation';
+import { resolveDiagnosticSourceLocation } from './utils/featureSourceLocation';
 import {
-  resolveDiagnosticFeatureIndex,
-  type SourceTextLocation,
-} from './utils/diagnosticNavigation';
-import {
-  findFeatureSourceLocation,
-  resolveDiagnosticSourceLocation,
-} from './utils/featureSourceLocation';
-
-interface WorkspaceSelection {
-  document: SpatialDocument;
-  featureIndex: number | null;
-  diagnostic: Diagnostic | null;
-  sourceLocation: SourceTextLocation | null;
-  requestId: number;
-}
+  createFeatureSelectionController,
+  type WorkspaceSelection,
+} from './utils/featureSelectionController';
 
 function App() {
   const [document, setDocument] = useState<SpatialDocument>(() =>
@@ -48,6 +38,15 @@ function App() {
   const [expanded, setExpanded] = useState(false);
   const [rightPanel, setRightPanel] = useState<'editor' | 'inspector'>('editor');
   const activeSelection = selection?.document === document ? selection : null;
+  const featureSelectionController = createFeatureSelectionController({
+    getDocument: () => document,
+    nextRequestId: () => {
+      selectionSequence.current += 1;
+      return selectionSequence.current;
+    },
+    setSelection,
+    setPanel: setRightPanel,
+  });
 
   const handleSelectDiagnostic = (diagnostic: Diagnostic) => {
     selectionSequence.current += 1;
@@ -68,18 +67,7 @@ function App() {
   };
 
   const handleFeatureSelect = (featureIndex: number) => {
-    selectionSequence.current += 1;
-    const sourceLocation = document.parsed === null
-      ? null
-      : findFeatureSourceLocation(document.source.rawText, document.parsed, featureIndex);
-    setSelection({
-      document,
-      featureIndex,
-      diagnostic: null,
-      sourceLocation,
-      requestId: selectionSequence.current,
-    });
-    setRightPanel('inspector');
+    featureSelectionController.selectFeatureFromMap(featureIndex);
   };
 
   useEffect(() => {
@@ -208,7 +196,7 @@ function App() {
             <InspectorPanel
               document={document}
               onSelectDiagnostic={handleSelectDiagnostic}
-              onShowFeatureSource={() => setRightPanel('editor')}
+              onShowFeatureSource={() => featureSelectionController.showFeatureSource(activeSelection)}
               selectedFeatureIndex={activeSelection?.featureIndex ?? null}
               selectedFeatureHasSourceLocation={Boolean(activeSelection?.sourceLocation)}
             />

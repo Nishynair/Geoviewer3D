@@ -3,6 +3,7 @@ import type { SourceTextLocation } from './diagnosticNavigation';
 import {
   hasDiagnosticSourceLocation,
   resolveDiagnosticFeatureIndex,
+  getGeoJSONFeature,
   type DiagnosticReference,
 } from './diagnosticNavigation';
 
@@ -169,6 +170,19 @@ export function findFeatureSourceLocation(
   }
 
   return { start: sourceNode.start, end: sourceNode.end };
+}
+
+export function resolveMapFeatureSelection(
+  rawText: string,
+  geojson: GeoJSONValue | null,
+  featureIndex: number,
+): { featureIndex: number; sourceLocation: SourceTextLocation | null } | null {
+  const feature = getGeoJSONFeature(geojson, featureIndex);
+  if (!feature || geojson === null) return null;
+  return {
+    featureIndex,
+    sourceLocation: findFeatureSourceLocation(rawText, geojson, featureIndex),
+  };
 }
 
 export function resolveDiagnosticSourceLocation(
