@@ -16,3 +16,14 @@ and stable diagnostics.
 - Geometry types with no occurrences are omitted. An empty dataset therefore
   has `geometryCounts: {}`; an empty GeometryCollection counts as one
   GeometryCollection.
+
+## Coordinate summary
+
+Valid reports include `coordinates`; invalid reports set `coordinates: null`.
+The summary counts every coordinate tuple, including a polygon ring's repeated
+closing tuple, and traverses nested GeometryCollections. `dimensions` is `XY`,
+`XYZ`, `mixed`, or `empty`. Bounds use ordinary minimum and maximum X and Y
+values without antimeridian handling. `zRange` uses only the third ordinate and
+reports its numeric minimum and maximum without assigning altitude semantics.
+Empty coordinate sets have `bounds: null` and `zRange: null`; a dataset with XY
+coordinates has `zRange: null`.

@@ -21,15 +21,38 @@ export interface InspectionSummary {
   geometryCounts: Partial<Record<GeometryType, number>>;
 }
 
+export type CoordinateDimensions = 'XY' | 'XYZ' | 'mixed' | 'empty';
+
+export interface CoordinateBounds {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
+export interface ZRange {
+  min: number;
+  max: number;
+}
+
+export interface CoordinateSummary {
+  coordinateCount: number;
+  dimensions: CoordinateDimensions;
+  bounds: CoordinateBounds | null;
+  zRange: ZRange | null;
+}
+
 export type InspectionReport =
   | {
       valid: true;
       summary: InspectionSummary;
+      coordinates: CoordinateSummary;
       diagnostics: [];
     }
   | {
       valid: false;
       summary: null;
+      coordinates: null;
       diagnostics: Diagnostic[];
     };
 
@@ -69,6 +92,119 @@ function summarize(input: ValidatedGeoJSON): InspectionSummary {
   }
 
   return { featureCount, geometryCounts };
+}
+
+interface CoordinateAccumulator {
+  coordinateCount: number;
+  sawXY: boolean;
+  sawXYZ: boolean;
+  bounds: CoordinateBounds | null;
+  zRange: ZRange | null;
+}
+
+function isPosition(value: unknown): value is number[] {
+  if (!Array.isArray(value) || value.length < 2) return false;
+  return value.every((ordinate: unknown) => typeof ordinate === 'number');
+}
+
+function includePosition(
+  position: number[],
+  accumulator: CoordinateAccumulator,
+): void {
+  accumulator.coordinateCount += 1;
+  if (position.length >= 3) accumulator.sawXYZ = true;
+  else accumulator.sawXY = true;
+
+  const [x, y] = position;
+  if (x === undefined || y === undefined) return;
+
+  if (accumulator.bounds === null) {
+    accumulator.bounds = { minX: x, maxX: x, minY: y, maxY: y };
+  } else {
+    accumulator.bounds.minX = Math.min(accumulator.bounds.minX, x);
+    accumulator.bounds.maxX = Math.max(accumulator.bounds.maxX, x);
+    accumulator.bounds.minY = Math.min(accumulator.bounds.minY, y);
+    accumulator.bounds.maxY = Math.max(accumulator.bounds.maxY, y);
+  }
+
+  const z = position[2];
+  if (z !== undefined) {
+    if (accumulator.zRange === null) {
+      accumulator.zRange = { min: z, max: z };
+    } else {
+      accumulator.zRange.min = Math.min(accumulator.zRange.min, z);
+      accumulator.zRange.max = Math.max(accumulator.zRange.max, z);
+    }
+  }
+}
+
+function collectPositions(
+  value: unknown,
+  accumulator: CoordinateAccumulator,
+): void {
+  if (!Array.isArray(value)) return;
+  if (isPosition(value)) {
+    includePosition(value, accumulator);
+    return;
+  }
+
+  for (const child of value) {
+    collectPositions(child, accumulator);
+  }
+}
+
+function collectGeometryCoordinates(
+  geometry: GeoJSONGeometry,
+  accumulator: CoordinateAccumulator,
+): void {
+  if (geometry.type === 'GeometryCollection') {
+    for (const child of geometry.geometries) {
+      collectGeometryCoordinates(child, accumulator);
+    }
+    return;
+  }
+
+  collectPositions(geometry.coordinates, accumulator);
+}
+
+function summarizeCoordinates(input: ValidatedGeoJSON): CoordinateSummary {
+  const accumulator: CoordinateAccumulator = {
+    coordinateCount: 0,
+    sawXY: false,
+    sawXYZ: false,
+    bounds: null,
+    zRange: null,
+  };
+
+  if (input.type === 'FeatureCollection') {
+    for (const feature of input.features) {
+      if (feature.geometry !== null) {
+        collectGeometryCoordinates(feature.geometry, accumulator);
+      }
+    }
+  } else if (input.type === 'Feature') {
+    if (input.geometry !== null) {
+      collectGeometryCoordinates(input.geometry, accumulator);
+    }
+  } else {
+    collectGeometryCoordinates(input, accumulator);
+  }
+
+  const dimensions: CoordinateDimensions =
+    accumulator.coordinateCount === 0
+      ? 'empty'
+      : accumulator.sawXY && accumulator.sawXYZ
+        ? 'mixed'
+        : accumulator.sawXYZ
+          ? 'XYZ'
+          : 'XY';
+
+  return {
+    coordinateCount: accumulator.coordinateCount,
+    dimensions,
+    bounds: accumulator.bounds,
+    zRange: accumulator.zRange,
+  };
 }
 
 function isObject(value: unknown): value is JsonObject {
@@ -130,10 +266,14 @@ function validateWithNestedCollections(input: unknown): void {
   }
 }
 
-function validReport(summary: InspectionSummary): InspectionReport {
+function validReport(
+  summary: InspectionSummary,
+  coordinates: CoordinateSummary,
+): InspectionReport {
   return {
     valid: true,
     summary,
+    coordinates,
     diagnostics: [],
   };
 }
@@ -149,6 +289,7 @@ function invalidReport(error?: unknown): InspectionReport {
   return {
     valid: false,
     summary: null,
+    coordinates: null,
     diagnostics:
       diagnostics.length > 0
         ? diagnostics
@@ -171,7 +312,8 @@ export function inspectGeoJSON(input: unknown): InspectionReport {
     validateWithNestedCollections(validationTree);
 
     // The validator checks the original root plus each removed GeometryCollection.
-    return validReport(summarize(originalTree as ValidatedGeoJSON));
+    const validatedInput = originalTree as ValidatedGeoJSON;
+    return validReport(summarize(validatedInput), summarizeCoordinates(validatedInput));
   } catch (error: unknown) {
     return invalidReport(error);
   }
