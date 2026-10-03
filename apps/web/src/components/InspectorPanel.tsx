@@ -1,9 +1,19 @@
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import Table from '@mui/material/Table';
+import TableBody from '@mui/material/TableBody';
+import TableCell from '@mui/material/TableCell';
+import TableHead from '@mui/material/TableHead';
+import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
-import { inspectGeoJSON, type Diagnostic } from 'spatial-doctor';
-import type { GeoJSON as GeoJsonValue } from 'geojson';
+import {
+  inspectGeoJSON,
+  measureGeoJSONGeometry,
+  type Diagnostic,
+  type DistanceSummary,
+} from 'spatial-doctor';
+import type { Geometry, GeoJSON as GeoJsonValue } from 'geojson';
 import type { SpatialDocument } from '../spatialDocument';
 import {
   hasDiagnosticFeatureReference,
@@ -11,6 +21,7 @@ import {
 } from '../utils/diagnosticNavigation';
 import { getGeoJSONFeature } from '../utils/diagnosticNavigation';
 import { resolveDiagnosticSourceLocation } from '../utils/featureSourceLocation';
+import type { TerrainComparisonResult } from '../utils/terrainComparison';
 
 interface InspectorPanelProps {
   document: SpatialDocument;
@@ -18,6 +29,9 @@ interface InspectorPanelProps {
   onShowFeatureSource?: () => void;
   selectedFeatureIndex?: number | null;
   selectedFeatureHasSourceLocation?: boolean;
+  onCompareTerrain?: () => void;
+  terrainComparisonPending?: boolean;
+  terrainComparison?: TerrainComparisonResult | null;
 }
 
 const DIAGNOSTIC_DEFINITIONS: Record<Diagnostic['code'], { title: string; message: string }> = {
@@ -40,18 +54,147 @@ function Metric({ label, value }: { label: string; value: string | number }) {
   );
 }
 
+function formatDistance(distance: DistanceSummary): string {
+  if (distance.totalSegments === 0) return 'No line segments to measure';
+  if (distance.rangeExceeded) {
+    return `Unavailable (sum exceeds numeric range; ${distance.measuredSegments} of ${distance.totalSegments} segments measured)`;
+  }
+  if (distance.meters === null) {
+    return `Unavailable (${distance.measuredSegments} of ${distance.totalSegments} segments measured)`;
+  }
+  if (!distance.complete) {
+    return `Partial: ${distance.meters.toFixed(1)} m (${distance.measuredSegments} of ${distance.totalSegments} segments); not a complete total`;
+  }
+  return `${distance.meters.toFixed(1)} m`;
+}
+
+function SelectedGeometryMeasurements({ geometry }: { geometry: Geometry | null }) {
+  if (geometry === null) return null;
+  const measurement = measureGeoJSONGeometry(geometry);
+  if (!measurement) return null;
+
+  return (
+    <Box component="section" aria-labelledby="selected-geometry-measurements-heading" sx={{ mt: 1.5 }}>
+      <Typography id="selected-geometry-measurements-heading" component="h4" variant="subtitle1">
+        Elevation and line measurements
+      </Typography>
+      <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 0.5 }}>
+        Horizontal lengths use a spherical longitude/latitude approximation in meters. Z values use the third ordinate as meters for arithmetic only; no vertical datum is inferred or converted.
+      </Typography>
+      <Box component="dl" sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', columnGap: 2, m: 0 }}>
+        <Metric
+          label="Z statistics (m, third ordinate)"
+          value={measurement.zStatistics.measuredCoordinates === 0
+            ? 'No Z values'
+            : `Min ${measurement.zStatistics.minimum}; max ${measurement.zStatistics.maximum}; mean ${measurement.zStatistics.mean?.toFixed(2)} (${measurement.zStatistics.measuredCoordinates} present, ${measurement.zStatistics.missingCoordinates} missing)`}
+        />
+        <Metric
+          label="2D line length"
+          value={measurement.lineProfiles.length === 0
+            ? 'Not applicable to this geometry'
+            : formatDistance(measurement.horizontalLength)}
+        />
+        <Metric
+          label="3D line length"
+          value={measurement.lineProfiles.length === 0
+            ? 'Not applicable to this geometry'
+            : formatDistance(measurement.threeDimensionalLength)}
+        />
+      </Box>
+
+      <Typography component="h5" variant="body2" sx={{ mt: 1.5, fontWeight: 600 }}>
+        Per-coordinate Z values
+      </Typography>
+      {measurement.coordinateZ.length === 0 ? (
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+          No coordinate tuples.
+        </Typography>
+      ) : (
+        <Box component="ul" aria-label="Per-coordinate Z values" sx={{ listStyle: 'none', p: 0, m: 0, mt: 0.5, maxHeight: 180, overflowY: 'auto' }}>
+          {measurement.coordinateZ.map(({ path, z }, index) => (
+            <Box component="li" key={`${path.join('.')}-${index}`} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.25 }}>
+              <Typography variant="body2">Coordinate {index + 1} · path {path.length > 0 ? path.map((part) => part + 1).join('.') : 'point'}</Typography>
+              <Typography variant="body2" color="text.secondary">{z === null ? 'No Z (XY)' : `${z} m`}</Typography>
+            </Box>
+          ))}
+        </Box>
+      )}
+
+      <Typography component="h5" variant="body2" sx={{ mt: 1.5, fontWeight: 600 }}>
+        Elevation profile
+      </Typography>
+      {measurement.lineProfiles.length === 0 ? (
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+          No supported LineString components; line length and elevation profile are unavailable.
+        </Typography>
+      ) : (
+        measurement.lineProfiles.map((line, lineIndex) => (
+          <Box component="section" key={line.path.join('.') || 'root-line'} sx={{ mt: 1 }}>
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+              Line component {lineIndex + 1}{line.path.length > 0 ? ` · path ${line.path.map((part) => part + 1).join('.')}` : ''}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" component="p" sx={{ my: 0.5 }}>
+              2D length: {formatDistance(line.horizontalLength)} · 3D length: {formatDistance(line.threeDimensionalLength)}
+            </Typography>
+            <Table size="small" aria-label={`Line component ${lineIndex + 1} elevation profile`}>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Vertex</TableCell>
+                  <TableCell>Distance along line</TableCell>
+                  <TableCell>Z</TableCell>
+                  <TableCell>Next segment grade</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {line.coordinates.map((coordinate) => {
+                  const nextSegment = line.segments[coordinate.coordinateIndex];
+                  const nextCoordinate = line.coordinates[coordinate.coordinateIndex + 1];
+                  const grade = nextSegment?.gradePercent;
+                  const gradeLabel = grade === undefined || grade === null
+                    ? nextSegment?.horizontalMeters === 0
+                      ? 'Unavailable (zero run)'
+                      : coordinate.z === null || nextCoordinate?.z === null
+                        ? 'Unavailable (missing Z)'
+                        : nextSegment?.horizontalMeters === null
+                          ? 'Unavailable (unsupported lon/lat)'
+                          : 'Unavailable (numeric range)'
+                    : `${grade.toFixed(2)}%`;
+                  return (
+                    <TableRow key={coordinate.coordinateIndex}>
+                      <TableCell>{coordinate.coordinateIndex + 1}</TableCell>
+                      <TableCell>{coordinate.distanceAlongMeters === null ? 'Unavailable' : `${coordinate.distanceAlongMeters.toFixed(1)} m`}</TableCell>
+                      <TableCell>{coordinate.z === null ? 'No Z' : `${coordinate.z} m`}</TableCell>
+                      <TableCell>{nextSegment ? gradeLabel : '—'}</TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </Box>
+        ))
+      )}
+    </Box>
+  );
+}
+
 function SelectedFeatureDetails({
   document,
   featureIndex,
   hasSourceLocation,
   onSelectDiagnostic,
   onShowFeatureSource,
+  onCompareTerrain,
+  terrainComparisonPending,
+  terrainComparison,
 }: {
   document: SpatialDocument;
   featureIndex: number;
   hasSourceLocation: boolean;
   onSelectDiagnostic?: (diagnostic: Diagnostic) => void;
   onShowFeatureSource?: () => void;
+  onCompareTerrain?: () => void;
+  terrainComparisonPending: boolean;
+  terrainComparison: TerrainComparisonResult | null;
 }) {
   if (document.report?.valid !== true || document.parsed === null) return null;
   const feature = getGeoJSONFeature(document.parsed, featureIndex);
@@ -96,6 +239,26 @@ function SelectedFeatureDetails({
           </>
         )}
       </Box>
+      <SelectedGeometryMeasurements geometry={feature.geometry} />
+      {onCompareTerrain && (
+        <Box component="section" aria-labelledby="terrain-comparison-heading" sx={{ mt: 1.5 }}>
+          <Typography id="terrain-comparison-heading" component="h4" variant="subtitle1">
+            Terrain comparison
+          </Typography>
+          <Typography variant="caption" component="p" color="text.secondary" sx={{ mt: 0.25 }}>
+            Raw GeoJSON Z minus sampled terrain height. This is meaningful only when both heights use compatible vertical references; no conversion is applied.
+          </Typography>
+          <Button size="small" sx={{ mt: 0.5 }} onClick={onCompareTerrain} disabled={terrainComparisonPending}>
+            {terrainComparisonPending ? 'Sampling terrain…' : 'Compare with terrain'}
+          </Button>
+          {terrainComparisonPending && (
+            <Typography role="status" variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              Waiting for available terrain samples…
+            </Typography>
+          )}
+          {terrainComparison && <TerrainComparisonDetails result={terrainComparison} />}
+        </Box>
+      )}
       {geometryEntries.length > 0 && (
         <Box component="ul" aria-label="Selected feature geometry counts" sx={{ listStyle: 'none', p: 0, m: 0, mt: 1 }}>
           {geometryEntries.map(([geometry, count]) => (
@@ -131,6 +294,44 @@ function SelectedFeatureDetails({
           sourceText={document.source.rawText}
         />
       )}
+    </Box>
+  );
+}
+
+function TerrainComparisonDetails({ result }: { result: TerrainComparisonResult }) {
+  if (result.status === 'unavailable') {
+    const message = result.reason === 'no-elevation'
+      ? 'This geometry has no finite Z coordinates to compare.'
+      : result.reason === 'no-valid-locations'
+        ? 'Coordinates with finite Z are outside the supported longitude/latitude range, so terrain was not sampled.'
+      : result.reason === 'no-terrain'
+        ? 'Terrain data with tile availability is not ready, so no ground height was assumed.'
+        : result.reason === 'sampling-failed'
+          ? 'Terrain sampling failed. No ground height was assumed.'
+          : result.reason === 'numeric-range'
+            ? 'The height difference exceeds the supported numeric range.'
+            : 'No finite terrain samples were returned for this geometry.';
+    return (
+      <Typography role="status" variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+        {message}
+      </Typography>
+    );
+  }
+
+  return (
+    <Box role="status" sx={{ mt: 0.75 }}>
+      <Typography variant="body2">
+        {result.status === 'complete' ? 'Complete' : 'Partial'} comparison: {result.values.length} of {result.totalCoordinates} coordinates; {result.unavailableCoordinates} unavailable.
+      </Typography>
+      <Box component="ul" aria-label="Terrain comparison values" sx={{ listStyle: 'none', p: 0, m: 0, mt: 0.5 }}>
+        {result.values.map((value, index) => (
+          <Box component="li" key={`${value.path.join('.')}-${index}`} sx={{ py: 0.25 }}>
+            <Typography variant="body2">
+              Coordinate {value.path.length > 0 ? value.path.map((part) => part + 1).join('.') : 'point'}: Z {value.sourceZ} m · terrain {value.terrainHeight.toFixed(2)} m · difference {value.difference.toFixed(2)} m
+            </Typography>
+          </Box>
+        ))}
+      </Box>
     </Box>
   );
 }
@@ -199,6 +400,9 @@ export default function InspectorPanel({
   onShowFeatureSource,
   selectedFeatureIndex = null,
   selectedFeatureHasSourceLocation = false,
+  onCompareTerrain,
+  terrainComparisonPending = false,
+  terrainComparison = null,
 }: InspectorPanelProps) {
   if (document.parseError?.kind === 'json-syntax') {
     return (
@@ -265,13 +469,16 @@ export default function InspectorPanel({
       </Typography>
 
       {selectedFeatureIndex !== null && (
-        <SelectedFeatureDetails
+      <SelectedFeatureDetails
           document={document}
           featureIndex={selectedFeatureIndex}
           hasSourceLocation={selectedFeatureHasSourceLocation}
           onSelectDiagnostic={onSelectDiagnostic}
-          onShowFeatureSource={onShowFeatureSource}
-        />
+        onShowFeatureSource={onShowFeatureSource}
+        onCompareTerrain={onCompareTerrain}
+        terrainComparisonPending={terrainComparisonPending}
+        terrainComparison={terrainComparison}
+      />
       )}
 
       {coordinates.dimensions === 'mixed' && (

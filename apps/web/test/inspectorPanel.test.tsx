@@ -76,6 +76,40 @@ function renderValidFeatureDiagnostic(
   );
 }
 
+function renderSelectedGeometry(geometry: object): string {
+  const rawText = JSON.stringify({
+    type: 'FeatureCollection',
+    features: [{ type: 'Feature', properties: {}, geometry }],
+  });
+  const document = createSpatialDocument('selected.geojson', rawText, inspectGeoJSON);
+  return renderToStaticMarkup(
+    <InspectorPanel document={document} selectedFeatureIndex={0} />,
+  );
+}
+
+function renderTerrainComparison(
+  terrainComparison = null,
+  terrainComparisonPending = false,
+): string {
+  const document = createSpatialDocument(
+    'terrain.geojson',
+    JSON.stringify({
+      type: 'FeatureCollection',
+      features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [10, 20, 120] } }],
+    }),
+    inspectGeoJSON,
+  );
+  return renderToStaticMarkup(
+    <InspectorPanel
+      document={document}
+      selectedFeatureIndex={0}
+      onCompareTerrain={() => undefined}
+      terrainComparisonPending={terrainComparisonPending}
+      terrainComparison={terrainComparison}
+    />,
+  );
+}
+
 function textContent(markup: string): string {
   return markup
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/g, ' ')
@@ -246,5 +280,87 @@ describe('InspectorPanel', () => {
     expect(markup).toContain('Selected feature');
     expect(markup).toContain('Show selected feature in source');
     expect(markup).not.toContain('No useful source location is available for this feature.');
+  });
+
+  it('renders selected line Z profile, complete and partial measurements, and grade', () => {
+    const markup = textContent(renderSelectedGeometry({
+      type: 'LineString',
+      coordinates: [[0, 0, 10], [0, 0.001, 20], [0, 0.002]],
+    }));
+
+    expect(markup).toContain('Elevation and line measurements');
+    expect(markup).toContain('spherical longitude/latitude approximation in meters');
+    expect(markup).toContain('no vertical datum is inferred or converted');
+    expect(markup).toContain('Min 10; max 20; mean 15.00 (2 present, 1 missing)');
+    expect(markup).toContain('2D line length');
+    expect(markup).toContain('3D line length');
+    expect(markup).toContain('Partial:');
+    expect(markup).toContain('Per-coordinate Z values');
+    expect(markup).toContain('Distance along line');
+    expect(markup).toContain('Next segment grade');
+    expect(markup).toContain('8.99%');
+    expect(markup).toContain('Unavailable (missing Z)');
+  });
+
+  it('shows Z values for selected non-line geometry without inventing line measurements', () => {
+    const markup = textContent(renderSelectedGeometry({
+      type: 'Point',
+      coordinates: [12, -5, 40],
+    }));
+
+    expect(markup).toContain('Z statistics (m, third ordinate)');
+    expect(markup).toContain('Min 40; max 40; mean 40.00 (1 present, 0 missing)');
+    expect(markup).toContain('Per-coordinate Z values');
+    expect(markup).toContain('40 m');
+    expect(markup).toContain('Not applicable to this geometry');
+    expect(markup).toContain('No supported LineString components; line length and elevation profile are unavailable.');
+  });
+
+  it('renders terrain comparison controls and reports raw Z minus sampled terrain', () => {
+    const markup = textContent(renderTerrainComparison({
+      status: 'complete',
+      totalCoordinates: 1,
+      coordinatesWithElevation: 1,
+      unavailableCoordinates: 0,
+      values: [{
+        path: [],
+        longitude: 10,
+        latitude: 20,
+        sourceZ: 120,
+        terrainHeight: 100,
+        difference: 20,
+      }],
+    }));
+
+    expect(markup).toContain('Compare with terrain');
+    expect(markup).toContain('compatible vertical references');
+    expect(markup).toContain('Complete comparison: 1 of 1 coordinates; 0 unavailable.');
+    expect(markup).toContain('Z 120 m · terrain 100.00 m · difference 20.00 m');
+  });
+
+  it('shows waiting and unavailable terrain states without implying ground height zero', () => {
+    const waiting = textContent(renderTerrainComparison(null, true));
+    const unavailable = textContent(renderTerrainComparison({
+      status: 'unavailable',
+      reason: 'no-terrain',
+      totalCoordinates: 1,
+      coordinatesWithElevation: 1,
+      unavailableCoordinates: 1,
+      values: [],
+    }));
+    const unsupportedLocations = textContent(renderTerrainComparison({
+      status: 'unavailable',
+      reason: 'no-valid-locations',
+      totalCoordinates: 1,
+      coordinatesWithElevation: 1,
+      unavailableCoordinates: 1,
+      values: [],
+    }));
+
+    expect(waiting).toContain('Sampling terrain…');
+    expect(waiting).toContain('Waiting for available terrain samples…');
+    expect(unavailable).toContain('Terrain data with tile availability is not ready, so no ground height was assumed.');
+    expect(unsupportedLocations).toContain('outside the supported longitude/latitude range, so terrain was not sampled.');
+    expect(unavailable).not.toContain('terrain 0.00 m');
   });
 });
