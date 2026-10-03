@@ -7,6 +7,7 @@ import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
+import { useMemo } from 'react';
 import {
   inspectGeoJSON,
   measureGeoJSONGeometry,
@@ -15,13 +16,16 @@ import {
 } from 'spatial-doctor';
 import type { Geometry, GeoJSON as GeoJsonValue } from 'geojson';
 import type { SpatialDocument } from '../spatialDocument';
+import type { JsonFgInfo } from '../utils/jsonFg';
 import {
   hasDiagnosticFeatureReference,
   resolveDiagnosticFeatureIndex,
 } from '../utils/diagnosticNavigation';
 import { getGeoJSONFeature } from '../utils/diagnosticNavigation';
 import { resolveDiagnosticSourceLocation } from '../utils/featureSourceLocation';
+import type { GeoJSONRepairKind, GeoJSONRepairPreview } from '../utils/geoJsonRepairs';
 import type { TerrainComparisonResult } from '../utils/terrainComparison';
+import { planSpatialConversion, type ConversionAccount, type SpatialConversionPlan } from '../utils/formatConversion';
 
 interface InspectorPanelProps {
   document: SpatialDocument;
@@ -32,6 +36,11 @@ interface InspectorPanelProps {
   onCompareTerrain?: () => void;
   terrainComparisonPending?: boolean;
   terrainComparison?: TerrainComparisonResult | null;
+  repairPreview?: GeoJSONRepairPreview | null;
+  canUndoRepair?: boolean;
+  onPreviewRepair?: (kind: GeoJSONRepairKind) => void;
+  onApplyRepair?: () => void;
+  onUndoRepair?: () => void;
 }
 
 const DIAGNOSTIC_DEFINITIONS: Record<Diagnostic['code'], { title: string; message: string }> = {
@@ -40,6 +49,239 @@ const DIAGNOSTIC_DEFINITIONS: Record<Diagnostic['code'], { title: string; messag
     message: 'This document does not match the required GeoJSON structure.',
   },
 };
+
+const REPAIR_OPTIONS: Array<{ kind: GeoJSONRepairKind; label: string }> = [
+  { kind: 'remove-duplicate-vertices', label: 'Remove consecutive duplicate vertices' },
+  { kind: 'close-unclosed-rings', label: 'Close safe unclosed polygon rings' },
+  { kind: 'remove-z', label: 'Remove Z from XYZ coordinates' },
+];
+
+function GeometryRepairs({
+  preview,
+  canUndo,
+  onPreview,
+  onApply,
+  onUndo,
+}: {
+  preview: GeoJSONRepairPreview | null;
+  canUndo: boolean;
+  onPreview?: (kind: GeoJSONRepairKind) => void;
+  onApply?: () => void;
+  onUndo?: () => void;
+}) {
+  if (!onPreview) return null;
+
+  return (
+    <Box component="section" aria-labelledby="geometry-repairs-heading" sx={{ mt: 2 }}>
+      <Typography id="geometry-repairs-heading" component="h3" variant="subtitle1">
+        Geometry repairs
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+        Preview a conservative repair first. The source changes only when you apply it.
+      </Typography>
+      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', mt: 0.75 }}>
+        {REPAIR_OPTIONS.map(({ kind, label }) => (
+          <Button key={kind} size="small" onClick={() => onPreview(kind)}>
+            {label}
+          </Button>
+        ))}
+      </Box>
+
+      {preview?.status === 'unavailable' && (
+        <Alert severity="info" role="status" sx={{ mt: 1 }}>
+          {preview.reason}
+        </Alert>
+      )}
+      {preview?.status === 'ready' && (
+        <Box role="status" sx={{ mt: 1 }}>
+          <Typography component="h4" variant="body2" sx={{ fontWeight: 600 }}>
+            Repair preview
+          </Typography>
+          <Typography variant="body2" sx={{ mt: 0.5 }}>
+            Coordinate positions: {preview.measurements.coordinatePositionsBefore} → {preview.measurements.coordinatePositionsAfter}
+          </Typography>
+          {preview.kind === 'remove-duplicate-vertices' && (
+            <Typography variant="body2">
+              Consecutive duplicate vertices removed: {preview.measurements.duplicatePositionsRemoved}
+            </Typography>
+          )}
+          {preview.kind === 'close-unclosed-rings' && (
+            <Typography variant="body2">
+              Polygon rings closed: {preview.measurements.ringsClosed}
+            </Typography>
+          )}
+          {preview.kind === 'remove-z' && (
+            <Typography variant="body2">
+              Z ordinates removed: {preview.measurements.zOrdinatesRemoved}; 3D bounding-box ranges removed: {preview.measurements.bboxZRangesRemoved}
+            </Typography>
+          )}
+          <details>
+            <summary>View proposed GeoJSON</summary>
+            <Box
+              component="pre"
+              aria-label="Proposed GeoJSON repair output"
+              sx={{ maxHeight: 240, overflow: 'auto', p: 1, bgcolor: 'action.hover', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
+            >
+              {preview.outputRawText}
+            </Box>
+          </details>
+          {onApply && (
+            <Button size="small" variant="contained" sx={{ mt: 1 }} onClick={onApply}>
+              Apply repair
+            </Button>
+          )}
+        </Box>
+      )}
+
+      {canUndo && onUndo && (
+        <Button size="small" sx={{ mt: 1 }} onClick={onUndo}>
+          Undo repair
+        </Button>
+      )}
+    </Box>
+  );
+}
+
+function JsonFgDetails({ info }: { info: JsonFgInfo }) {
+  const hasUnsupported = info.unsupportedConstructs.length > 0;
+  return (
+    <Box component="section" aria-labelledby="jsonfg-details-heading" sx={{ mt: 2 }}>
+      <Alert severity={hasUnsupported ? 'warning' : 'info'}>
+        <Typography id="jsonfg-details-heading" component="h3" variant="subtitle1">
+          JSON-FG source · Core geometry subset
+        </Typography>
+        <Typography component="p" variant="body2" sx={{ mb: 0, mt: 0.5 }}>
+          The original JSON-FG source is preserved. These inspection metrics and the globe use only the standard GeoJSON geometry member; they do not validate every JSON-FG extension.
+        </Typography>
+      </Alert>
+      <Typography variant="body2" sx={{ mt: 1 }}>
+        Geometry CRS: {info.geometryCrsDescription}
+      </Typography>
+      {info.coordRefSysDeclarations.length > 0 ? (
+        <>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+            coordRefSys values apply to native place and properties spatial values, inherit from the root unless overridden, and do not change the GeoJSON geometry member.
+          </Typography>
+          <Box component="ul" aria-label="JSON-FG coordinate reference declarations" sx={{ listStyle: 'none', p: 0, m: 0, mt: 0.5 }}>
+            {info.coordRefSysDeclarations.map(({ scope, value }, index) => (
+              <Box component="li" key={`${scope}-${index}`} sx={{ py: 0.25, overflowWrap: 'anywhere' }}>
+                <Typography variant="body2">{scope} coordRefSys: {JSON.stringify(value)}</Typography>
+              </Box>
+            ))}
+          </Box>
+        </>
+      ) : (
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+          No coordRefSys value is declared for native place or properties spatial values.
+        </Typography>
+      )}
+      {info.profileUris.length > 0 && (
+        <Box sx={{ mt: 0.75 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>Profile links</Typography>
+          {info.profileUris.map((uri, index) => (
+            <Typography key={`${uri}-${index}`} variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+              {uri}
+            </Typography>
+          ))}
+        </Box>
+      )}
+      {hasUnsupported && (
+        <Box component="ul" aria-label="Unsupported JSON-FG constructs" sx={{ pl: 2.5, mb: 0 }}>
+          {info.unsupportedConstructs.map((construct, index) => (
+            <Typography component="li" key={`${construct}-${index}`} variant="body2">
+              {construct}
+            </Typography>
+          ))}
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+function downloadConvertedFile(plan: Extract<SpatialConversionPlan, { status: 'ready' }>) {
+  const blob = new Blob([plan.outputRawText], { type: 'application/json' });
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = plan.targetName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
+
+function ConversionAccountSection({ account }: { account: ConversionAccount }) {
+  const groups: Array<{ title: string; items: string[] }> = [
+    { title: 'Preserved', items: account.preserved },
+    { title: 'Changed', items: account.changed },
+    { title: 'Approximated', items: account.approximated },
+    { title: 'Lost', items: account.lost },
+  ];
+
+  return (
+    <Box component="div" aria-label="Conversion preservation and loss account" sx={{ mt: 1 }}>
+      {groups.map(({ title, items }) => (
+        <Box component="section" key={title} sx={{ mt: 1 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>{title}</Typography>
+          {items.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">None.</Typography>
+          ) : (
+            <Box component="ul" sx={{ pl: 2.5, mt: 0.25, mb: 0 }}>
+              {items.map((item, index) => (
+                <Typography component="li" variant="body2" key={`${item}-${index}`}>
+                  {item}
+                </Typography>
+              ))}
+            </Box>
+          )}
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+function FormatConversionPanel({ sourceDocument }: { sourceDocument: SpatialDocument }) {
+  const plan = useMemo(() => planSpatialConversion(sourceDocument), [sourceDocument]);
+
+  return (
+    <Box component="section" aria-labelledby="format-conversion-heading" sx={{ mt: 2 }}>
+      <Typography id="format-conversion-heading" component="h3" variant="subtitle1">
+        Format conversion
+      </Typography>
+      {plan.status === 'blocked' ? (
+        <Alert severity="info" sx={{ mt: 0.75 }}>
+          <Typography component="h4" variant="body2" sx={{ fontWeight: 600 }}>
+            Conversion unavailable
+          </Typography>
+          <Typography component="p" variant="body2" sx={{ mb: 0, mt: 0.25 }}>
+            {plan.reason}
+          </Typography>
+        </Alert>
+      ) : (
+        <details>
+          <summary>Review {plan.from === 'geojson' ? 'GeoJSON → JSON-FG' : 'JSON-FG → GeoJSON'} conversion</summary>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+            Review the account before downloading. Your current source remains unchanged. Output file: {plan.targetName}
+          </Typography>
+          <ConversionAccountSection account={plan.account} />
+          <details>
+            <summary>View converted output</summary>
+            <Box
+              component="pre"
+              aria-label="Converted format output"
+              sx={{ maxHeight: 240, overflow: 'auto', p: 1, bgcolor: 'action.hover', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
+            >
+              {plan.outputRawText}
+            </Box>
+          </details>
+          <Button size="small" variant="contained" sx={{ mt: 1 }} onClick={() => downloadConvertedFile(plan)}>
+            Download converted file
+          </Button>
+        </details>
+      )}
+    </Box>
+  );
+}
 
 function Metric({ label, value }: { label: string; value: string | number }) {
   return (
@@ -403,6 +645,11 @@ export default function InspectorPanel({
   onCompareTerrain,
   terrainComparisonPending = false,
   terrainComparison = null,
+  repairPreview = null,
+  canUndoRepair = false,
+  onPreviewRepair,
+  onApplyRepair,
+  onUndoRepair,
 }: InspectorPanelProps) {
   if (document.parseError?.kind === 'json-syntax') {
     return (
@@ -413,14 +660,63 @@ export default function InspectorPanel({
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2, overflowWrap: 'anywhere' }}>
           {document.source.name}
         </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          Source format: {document.format === 'jsonfg' ? 'JSON-FG' : 'GeoJSON'}
+        </Typography>
         <Alert severity="error">
           <Typography component="h3" variant="subtitle1">
             JSON syntax error
           </Typography>
           <Typography component="p" variant="body2" sx={{ mb: 0, mt: 0.5 }}>
-            The source text could not be parsed as JSON. Correct the JSON text to see a GeoJSON overview.
+            {document.format === 'jsonfg'
+              ? 'The source text could not be parsed as JSON. Correct the JSON text to inspect the JSON-FG document.'
+              : 'The source text could not be parsed as JSON. Correct the JSON text to see a GeoJSON overview.'}
           </Typography>
         </Alert>
+        {document.format === 'jsonfg' && <JsonFgDetails info={document.jsonFg} />}
+        <GeometryRepairs
+          preview={repairPreview}
+          canUndo={canUndoRepair}
+          onPreview={onPreviewRepair}
+          onApply={onApplyRepair}
+          onUndo={onUndoRepair}
+        />
+        <FormatConversionPanel sourceDocument={document} />
+      </Box>
+    );
+  }
+
+  if (document.format === 'jsonfg'
+    && (document.parseError?.kind === 'invalid-jsonfg' || document.parseError?.kind === 'unsupported-jsonfg')) {
+    return (
+      <Box component="section" aria-labelledby="inspector-heading" sx={{ height: '100%', overflowY: 'auto', p: 2 }}>
+        <Typography id="inspector-heading" component="h2" variant="h6" sx={{ mb: 0.5 }}>
+          Dataset overview
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, overflowWrap: 'anywhere' }}>
+          {document.source.name}
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          Source format: JSON-FG
+        </Typography>
+        <Alert severity={document.parseError.kind === 'invalid-jsonfg' ? 'error' : 'warning'}>
+          <Typography component="h3" variant="subtitle1">
+            {document.parseError.kind === 'invalid-jsonfg' ? 'Invalid JSON-FG' : 'Unsupported JSON-FG'}
+          </Typography>
+          <Typography component="p" variant="body2" sx={{ mb: 0, mt: 0.5 }}>
+            {document.parseError.message}
+          </Typography>
+        </Alert>
+        {document.report?.valid === false && (
+          <DiagnosticList
+            diagnostics={document.report.diagnostics}
+            onSelectDiagnostic={onSelectDiagnostic}
+            featureGeoJSON={null}
+            sourceText={document.source.rawText}
+          />
+        )}
+        <JsonFgDetails info={document.jsonFg} />
+        <FormatConversionPanel sourceDocument={document} />
       </Box>
     );
   }
@@ -434,6 +730,9 @@ export default function InspectorPanel({
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2, overflowWrap: 'anywhere' }}>
           {document.source.name}
         </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          Source format: GeoJSON
+        </Typography>
         <Typography variant="body2" color="text.secondary">
           The current document is not valid GeoJSON, so its summary metrics are unavailable.
         </Typography>
@@ -443,6 +742,14 @@ export default function InspectorPanel({
           featureGeoJSON={null}
           sourceText={document.source.rawText}
         />
+        <GeometryRepairs
+          preview={repairPreview}
+          canUndo={canUndoRepair}
+          onPreview={onPreviewRepair}
+          onApply={onApplyRepair}
+          onUndo={onUndoRepair}
+        />
+        <FormatConversionPanel sourceDocument={document} />
       </Box>
     );
   }
@@ -467,6 +774,16 @@ export default function InspectorPanel({
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, overflowWrap: 'anywhere' }}>
         {document.source.name}
       </Typography>
+
+      {document.format === 'jsonfg' && <JsonFgDetails info={document.jsonFg} />}
+
+      {document.format === 'geojson' && (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          Source format: GeoJSON
+        </Typography>
+      )}
+
+      <FormatConversionPanel sourceDocument={document} />
 
       {selectedFeatureIndex !== null && (
       <SelectedFeatureDetails
@@ -530,6 +847,14 @@ export default function InspectorPanel({
         onSelectDiagnostic={onSelectDiagnostic}
         featureGeoJSON={document.parsed}
         sourceText={document.source.rawText}
+      />
+
+      <GeometryRepairs
+        preview={repairPreview}
+        canUndo={canUndoRepair}
+        onPreview={onPreviewRepair}
+        onApply={onApplyRepair}
+        onUndo={onUndoRepair}
       />
 
     </Box>

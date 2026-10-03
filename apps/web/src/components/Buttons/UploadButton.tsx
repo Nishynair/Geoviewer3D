@@ -30,14 +30,14 @@ export default function UploadButton({ onFileLoad }: UploadButtonProps) {
     <Box >
       {/* The hidden file input */}
       <input
-        accept=".json,.geojson"
+        accept=".json,.geojson,.jsonfg,.json-fg"
         id="upload-json"
         type="file"
         style={{ display: "none" }}
         onChange={handleFileChange}
       />
       <label htmlFor="upload-json">
-        <Tooltip title='Upload GeoJSON'>
+        <Tooltip title='Upload GeoJSON or JSON-FG'>
           <IconButton component="span">
             <UploadOutlinedIcon sx={{ color:"white" }}/>
           </IconButton>

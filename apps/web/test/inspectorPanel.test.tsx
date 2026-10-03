@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { inspectGeoJSON } from 'spatial-doctor';
 import InspectorPanel from '../src/components/InspectorPanel';
 import { createSpatialDocument } from '../src/spatialDocument';
+import { previewGeoJSONRepair } from '../src/utils/geoJsonRepairs';
 
 function renderDocument(rawText: string, name = 'sample.geojson'): string {
   const document = createSpatialDocument(name, rawText, inspectGeoJSON);
@@ -124,6 +125,106 @@ function textContent(markup: string): string {
 }
 
 describe('InspectorPanel', () => {
+  it('explains the supported JSON-FG geometry view and declared CRS scope', () => {
+    const markup = textContent(renderDocument(JSON.stringify({
+      type: 'FeatureCollection',
+      conformsTo: ['http://www.opengis.net/spec/json-fg-1/1.0/conf/core'],
+      coordRefSys: 'http://www.opengis.net/def/crs/OGC/1.3/CRS84',
+      features: [{
+        type: 'Feature',
+        properties: { name: 'Airport' },
+        geometry: { type: 'Point', coordinates: [-6.258, 55.682] },
+      }],
+    }), 'airports.json'));
+
+    expect(markup).toContain('JSON-FG source · Core geometry subset');
+    expect(markup).toContain('original JSON-FG source is preserved');
+    expect(markup).toContain('CRS84 for XY');
+    expect(markup).toContain('coordRefSys values apply to native place and properties spatial values');
+    expect(markup).toContain('root coordRefSys: "http://www.opengis.net/def/crs/OGC/1.3/CRS84"');
+    expect(markup).toContain('Feature count 1');
+  });
+
+  it('reports preserved but uninterpreted JSON-FG constructs and invalid JSON-FG without stale metrics', () => {
+    const supportedWithNativePlace = textContent(renderDocument(JSON.stringify({
+      type: 'Feature',
+      conformsTo: ['http://www.opengis.net/spec/json-fg-1/1.0/conf/core'],
+      links: [{
+        rel: 'profile',
+        href: 'http://www.opengis.net/def/profile/OGC/0/jsonfg-plus',
+      }],
+      properties: {},
+      geometry: { type: 'Point', coordinates: [1, 2] },
+      place: { type: 'Point', coordinates: [1000, 2000] },
+    }), 'airport.json'));
+    const invalid = textContent(renderDocument(JSON.stringify({
+      type: 'Feature',
+      place: { type: 'Point', coordinates: [1, 2] },
+      geometry: null,
+      properties: {},
+    }), 'missing-core.json'));
+    const unsupported = textContent(renderDocument(JSON.stringify({
+      type: 'FeatureSequence',
+      conformsTo: ['http://www.opengis.net/spec/json-fg-1/1.0/conf/core'],
+      features: [],
+    }), 'sequence.json'));
+
+    expect(supportedWithNativePlace).toContain('Native place geometry');
+    expect(supportedWithNativePlace).toContain('preserved in the JSON-FG source but is not rendered');
+    expect(supportedWithNativePlace).toContain('http://www.opengis.net/def/profile/OGC/0/jsonfg-plus');
+    expect(invalid).toContain('Source format: JSON-FG');
+    expect(invalid).toContain('Invalid JSON-FG');
+    expect(invalid).toContain('requires a root `conformsTo` array');
+    expect(invalid).not.toContain('Feature count');
+    expect(invalid).not.toContain('Coordinate tuples');
+    expect(unsupported).toContain('Unsupported JSON-FG');
+    expect(unsupported).toContain('Feature and FeatureCollection roots');
+    expect(unsupported).not.toContain('Feature count');
+  });
+
+  it('shows GeoJSON geometry diagnostics for invalid geometry inside JSON-FG', () => {
+    const markup = textContent(renderDocument(JSON.stringify({
+      type: 'FeatureCollection',
+      conformsTo: ['http://www.opengis.net/spec/json-fg-1/1.0/conf/core'],
+      features: [{ type: 'Feature', properties: {}, geometry: 'invalid' }],
+    }), 'invalid-geometry.json'));
+
+    expect(markup).toContain('Invalid JSON-FG');
+    expect(markup).toContain('invalid-geojson');
+    expect(markup).toContain('This document does not match the required GeoJSON structure.');
+    expect(markup).not.toContain('Feature count');
+    expect(markup).not.toContain('Coordinate tuples');
+  });
+
+  it('shows a reviewable conversion account and downloadable output without replacing the source', () => {
+    const rawText = JSON.stringify({
+      type: 'Feature',
+      id: 'tower',
+      properties: { name: 'Tower' },
+      geometry: { type: 'Point', coordinates: [1, 2, 3] },
+    });
+    const document = createSpatialDocument('tower.geojson', rawText, inspectGeoJSON);
+    const markup = textContent(renderToStaticMarkup(<InspectorPanel document={document} />));
+
+    expect(markup).toContain('Format conversion');
+    expect(markup).toContain('Review GeoJSON → JSON-FG conversion');
+    expect(markup).toContain('Preserved');
+    expect(markup).toContain('Changed');
+    expect(markup).toContain('Approximated None.');
+    expect(markup).toContain('Lost None.');
+    expect(markup).toContain('Download converted file');
+    expect(document.source.rawText).toBe(rawText);
+  });
+
+  it('explains why a malformed source cannot be converted', () => {
+    const markup = textContent(renderDocument('{"type":', 'broken.geojson'));
+
+    expect(markup).toContain('Format conversion');
+    expect(markup).toContain('Conversion unavailable');
+    expect(markup).toContain('JSON syntax error prevents conversion');
+    expect(markup).not.toContain('Download converted file');
+  });
+
   it('renders the report’s XY counts, simple bounds, and missing-Z state', () => {
     const markup = textContent(renderDocument(JSON.stringify({
       type: 'FeatureCollection',
@@ -223,6 +324,51 @@ describe('InspectorPanel', () => {
     expect(markup).not.toContain('Feature count');
     expect(markup).not.toContain('Coordinate tuples');
     expect(markup).not.toContain('Point 1');
+  });
+
+  it('offers explicit repair previews and measurements for parseable invalid GeoJSON', () => {
+    const rawText = JSON.stringify({
+      type: 'Feature',
+      properties: { parcel: 'A' },
+      geometry: { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1]]] },
+    });
+    const document = createSpatialDocument('open-ring.geojson', rawText, inspectGeoJSON);
+    const repairPreview = previewGeoJSONRepair(document.source, 'close-unclosed-rings');
+    const markup = textContent(renderToStaticMarkup(
+      <InspectorPanel
+        document={document}
+        repairPreview={repairPreview}
+        canUndoRepair
+        onPreviewRepair={() => undefined}
+        onApplyRepair={() => undefined}
+        onUndoRepair={() => undefined}
+      />,
+    ));
+
+    expect(document.report?.valid).toBe(false);
+    expect(markup).toContain('Invalid GeoJSON');
+    expect(markup).toContain('Geometry repairs');
+    expect(markup).toContain('Close safe unclosed polygon rings');
+    expect(markup).toContain('Coordinate positions: 3 → 4');
+    expect(markup).toContain('Polygon rings closed: 1');
+    expect(markup).toContain('Apply repair');
+    expect(markup).toContain('Undo repair');
+    expect(markup).not.toContain('Feature count');
+  });
+
+  it('keeps repair previews available while showing a JSON syntax error', () => {
+    const document = createSpatialDocument('broken.geojson', '{', inspectGeoJSON);
+    const markup = textContent(renderToStaticMarkup(
+      <InspectorPanel
+        document={document}
+        onPreviewRepair={() => undefined}
+      />,
+    ));
+
+    expect(markup).toContain('JSON syntax error');
+    expect(markup).toContain('Geometry repairs');
+    expect(markup).toContain('Remove consecutive duplicate vertices');
+    expect(markup).not.toContain('Feature count');
   });
 
   it('offers navigation for referenced diagnostics but keeps dataset-wide diagnostics static', () => {

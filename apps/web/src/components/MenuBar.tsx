@@ -4,6 +4,7 @@ import {
   Typography
 } from "@mui/material";
 import UploadButton from "./Buttons/UploadButton";
+import ExamplesButton from "./Buttons/ExamplesButton";
 import DownloadButton from "./Buttons/DownloadButton";
 import CopyButton from "./Buttons/CopyButton";
 import InfoButton from "./Buttons/InfoButton";
@@ -27,8 +28,9 @@ export default function MenuBar({ document, onFileLoad }: MenuBarProps) {
         >
           Geoviewer3D
         </Typography>
+        <ExamplesButton onFileLoad={onFileLoad}/>
         <UploadButton onFileLoad={onFileLoad}/>
-        <DownloadButton text={document.source.rawText}/>
+        <DownloadButton text={document.source.rawText} name={document.source.name}/>
         <CopyButton text={document.source.rawText}/>
         <InfoButton/>
       </Toolbar>
