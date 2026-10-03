@@ -30,6 +30,14 @@ import type {
   TerrainComparisonRequest,
   TerrainComparisonResult,
 } from './utils/terrainComparison';
+import {
+  applyRepairPreview,
+  previewGeoJSONRepair,
+  undoAppliedRepair,
+  type AppliedGeoJSONRepair,
+  type GeoJSONRepairKind,
+  type GeoJSONRepairPreview,
+} from './utils/geoJsonRepairs';
 
 interface TerrainComparisonDisplay {
   geojson: GeoJsonValue;
@@ -50,6 +58,8 @@ function App() {
   const [rightPanel, setRightPanel] = useState<'editor' | 'inspector'>('editor');
   const [terrainRequest, setTerrainRequest] = useState<TerrainComparisonRequest | null>(null);
   const [terrainResult, setTerrainResult] = useState<TerrainComparisonDisplay | null>(null);
+  const [repairPreview, setRepairPreview] = useState<GeoJSONRepairPreview | null>(null);
+  const [appliedRepair, setAppliedRepair] = useState<AppliedGeoJSONRepair | null>(null);
   const activeSelection = selection?.document === document ? selection : null;
   const featureSelectionController = createFeatureSelectionController({
     getDocument: () => document,
@@ -153,14 +163,58 @@ function App() {
     : null;
 
   const handleTextChange = (rawText: string) => {
+    setRepairPreview(null);
+    setAppliedRepair(null);
     setDocument((currentDocument) =>
       createSpatialDocument(currentDocument.source.name, rawText, inspectGeoJSON),
     );
   };
 
   const handleFileLoad = (name: string, rawText: string) => {
+    setRepairPreview(null);
+    setAppliedRepair(null);
     setDocument(createSpatialDocument(name, rawText, inspectGeoJSON));
   };
+
+  const handlePreviewRepair = (kind: GeoJSONRepairKind) => {
+    setRepairPreview(previewGeoJSONRepair(document.source, kind));
+  };
+
+  const handleApplyRepair = () => {
+    if (!repairPreview) return;
+    const applied = applyRepairPreview(document.source, repairPreview);
+    if (!applied) {
+      setRepairPreview(null);
+      return;
+    }
+
+    setAppliedRepair(applied);
+    setRepairPreview(null);
+    setSelection(null);
+    setDocument(createSpatialDocument(applied.current.name, applied.current.rawText, inspectGeoJSON));
+  };
+
+  const handleUndoRepair = () => {
+    if (!appliedRepair) return;
+    const previous = undoAppliedRepair(document.source, appliedRepair);
+    if (!previous) {
+      setAppliedRepair(null);
+      return;
+    }
+
+    setAppliedRepair(null);
+    setRepairPreview(null);
+    setSelection(null);
+    setDocument(createSpatialDocument(previous.name, previous.rawText, inspectGeoJSON));
+  };
+
+  const visibleRepairPreview = repairPreview
+    && repairPreview.source.name === document.source.name
+    && repairPreview.source.rawText === document.source.rawText
+    ? repairPreview
+    : null;
+  const canUndoRepair = appliedRepair?.current.name === document.source.name
+    && appliedRepair.current.rawText === document.source.rawText;
 
   return (
     <Box
@@ -274,6 +328,11 @@ function App() {
           >
             <InspectorPanel
               document={document}
+              repairPreview={visibleRepairPreview}
+              canUndoRepair={canUndoRepair}
+              onPreviewRepair={handlePreviewRepair}
+              onApplyRepair={handleApplyRepair}
+              onUndoRepair={handleUndoRepair}
               onSelectDiagnostic={handleSelectDiagnostic}
               onShowFeatureSource={() => featureSelectionController.showFeatureSource(activeSelection)}
               selectedFeatureIndex={activeSelection?.featureIndex ?? null}

@@ -21,6 +21,7 @@ import {
 } from '../utils/diagnosticNavigation';
 import { getGeoJSONFeature } from '../utils/diagnosticNavigation';
 import { resolveDiagnosticSourceLocation } from '../utils/featureSourceLocation';
+import type { GeoJSONRepairKind, GeoJSONRepairPreview } from '../utils/geoJsonRepairs';
 import type { TerrainComparisonResult } from '../utils/terrainComparison';
 
 interface InspectorPanelProps {
@@ -32,6 +33,11 @@ interface InspectorPanelProps {
   onCompareTerrain?: () => void;
   terrainComparisonPending?: boolean;
   terrainComparison?: TerrainComparisonResult | null;
+  repairPreview?: GeoJSONRepairPreview | null;
+  canUndoRepair?: boolean;
+  onPreviewRepair?: (kind: GeoJSONRepairKind) => void;
+  onApplyRepair?: () => void;
+  onUndoRepair?: () => void;
 }
 
 const DIAGNOSTIC_DEFINITIONS: Record<Diagnostic['code'], { title: string; message: string }> = {
@@ -40,6 +46,98 @@ const DIAGNOSTIC_DEFINITIONS: Record<Diagnostic['code'], { title: string; messag
     message: 'This document does not match the required GeoJSON structure.',
   },
 };
+
+const REPAIR_OPTIONS: Array<{ kind: GeoJSONRepairKind; label: string }> = [
+  { kind: 'remove-duplicate-vertices', label: 'Remove consecutive duplicate vertices' },
+  { kind: 'close-unclosed-rings', label: 'Close safe unclosed polygon rings' },
+  { kind: 'remove-z', label: 'Remove Z from XYZ coordinates' },
+];
+
+function GeometryRepairs({
+  preview,
+  canUndo,
+  onPreview,
+  onApply,
+  onUndo,
+}: {
+  preview: GeoJSONRepairPreview | null;
+  canUndo: boolean;
+  onPreview?: (kind: GeoJSONRepairKind) => void;
+  onApply?: () => void;
+  onUndo?: () => void;
+}) {
+  if (!onPreview) return null;
+
+  return (
+    <Box component="section" aria-labelledby="geometry-repairs-heading" sx={{ mt: 2 }}>
+      <Typography id="geometry-repairs-heading" component="h3" variant="subtitle1">
+        Geometry repairs
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+        Preview a conservative repair first. The source changes only when you apply it.
+      </Typography>
+      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', mt: 0.75 }}>
+        {REPAIR_OPTIONS.map(({ kind, label }) => (
+          <Button key={kind} size="small" onClick={() => onPreview(kind)}>
+            {label}
+          </Button>
+        ))}
+      </Box>
+
+      {preview?.status === 'unavailable' && (
+        <Alert severity="info" role="status" sx={{ mt: 1 }}>
+          {preview.reason}
+        </Alert>
+      )}
+      {preview?.status === 'ready' && (
+        <Box role="status" sx={{ mt: 1 }}>
+          <Typography component="h4" variant="body2" sx={{ fontWeight: 600 }}>
+            Repair preview
+          </Typography>
+          <Typography variant="body2" sx={{ mt: 0.5 }}>
+            Coordinate positions: {preview.measurements.coordinatePositionsBefore} → {preview.measurements.coordinatePositionsAfter}
+          </Typography>
+          {preview.kind === 'remove-duplicate-vertices' && (
+            <Typography variant="body2">
+              Consecutive duplicate vertices removed: {preview.measurements.duplicatePositionsRemoved}
+            </Typography>
+          )}
+          {preview.kind === 'close-unclosed-rings' && (
+            <Typography variant="body2">
+              Polygon rings closed: {preview.measurements.ringsClosed}
+            </Typography>
+          )}
+          {preview.kind === 'remove-z' && (
+            <Typography variant="body2">
+              Z ordinates removed: {preview.measurements.zOrdinatesRemoved}; 3D bounding-box ranges removed: {preview.measurements.bboxZRangesRemoved}
+            </Typography>
+          )}
+          <details>
+            <summary>View proposed GeoJSON</summary>
+            <Box
+              component="pre"
+              aria-label="Proposed GeoJSON repair output"
+              sx={{ maxHeight: 240, overflow: 'auto', p: 1, bgcolor: 'action.hover', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
+            >
+              {preview.outputRawText}
+            </Box>
+          </details>
+          {onApply && (
+            <Button size="small" variant="contained" sx={{ mt: 1 }} onClick={onApply}>
+              Apply repair
+            </Button>
+          )}
+        </Box>
+      )}
+
+      {canUndo && onUndo && (
+        <Button size="small" sx={{ mt: 1 }} onClick={onUndo}>
+          Undo repair
+        </Button>
+      )}
+    </Box>
+  );
+}
 
 function Metric({ label, value }: { label: string; value: string | number }) {
   return (
@@ -403,6 +501,11 @@ export default function InspectorPanel({
   onCompareTerrain,
   terrainComparisonPending = false,
   terrainComparison = null,
+  repairPreview = null,
+  canUndoRepair = false,
+  onPreviewRepair,
+  onApplyRepair,
+  onUndoRepair,
 }: InspectorPanelProps) {
   if (document.parseError?.kind === 'json-syntax') {
     return (
@@ -421,6 +524,13 @@ export default function InspectorPanel({
             The source text could not be parsed as JSON. Correct the JSON text to see a GeoJSON overview.
           </Typography>
         </Alert>
+        <GeometryRepairs
+          preview={repairPreview}
+          canUndo={canUndoRepair}
+          onPreview={onPreviewRepair}
+          onApply={onApplyRepair}
+          onUndo={onUndoRepair}
+        />
       </Box>
     );
   }
@@ -442,6 +552,13 @@ export default function InspectorPanel({
           onSelectDiagnostic={onSelectDiagnostic}
           featureGeoJSON={null}
           sourceText={document.source.rawText}
+        />
+        <GeometryRepairs
+          preview={repairPreview}
+          canUndo={canUndoRepair}
+          onPreview={onPreviewRepair}
+          onApply={onApplyRepair}
+          onUndo={onUndoRepair}
         />
       </Box>
     );
@@ -530,6 +647,14 @@ export default function InspectorPanel({
         onSelectDiagnostic={onSelectDiagnostic}
         featureGeoJSON={document.parsed}
         sourceText={document.source.rawText}
+      />
+
+      <GeometryRepairs
+        preview={repairPreview}
+        canUndo={canUndoRepair}
+        onPreview={onPreviewRepair}
+        onApply={onApplyRepair}
+        onUndo={onUndoRepair}
       />
 
     </Box>

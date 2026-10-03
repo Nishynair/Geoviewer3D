@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { inspectGeoJSON } from 'spatial-doctor';
 import InspectorPanel from '../src/components/InspectorPanel';
 import { createSpatialDocument } from '../src/spatialDocument';
+import { previewGeoJSONRepair } from '../src/utils/geoJsonRepairs';
 
 function renderDocument(rawText: string, name = 'sample.geojson'): string {
   const document = createSpatialDocument(name, rawText, inspectGeoJSON);
@@ -223,6 +224,51 @@ describe('InspectorPanel', () => {
     expect(markup).not.toContain('Feature count');
     expect(markup).not.toContain('Coordinate tuples');
     expect(markup).not.toContain('Point 1');
+  });
+
+  it('offers explicit repair previews and measurements for parseable invalid GeoJSON', () => {
+    const rawText = JSON.stringify({
+      type: 'Feature',
+      properties: { parcel: 'A' },
+      geometry: { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1]]] },
+    });
+    const document = createSpatialDocument('open-ring.geojson', rawText, inspectGeoJSON);
+    const repairPreview = previewGeoJSONRepair(document.source, 'close-unclosed-rings');
+    const markup = textContent(renderToStaticMarkup(
+      <InspectorPanel
+        document={document}
+        repairPreview={repairPreview}
+        canUndoRepair
+        onPreviewRepair={() => undefined}
+        onApplyRepair={() => undefined}
+        onUndoRepair={() => undefined}
+      />,
+    ));
+
+    expect(document.report?.valid).toBe(false);
+    expect(markup).toContain('Invalid GeoJSON');
+    expect(markup).toContain('Geometry repairs');
+    expect(markup).toContain('Close safe unclosed polygon rings');
+    expect(markup).toContain('Coordinate positions: 3 → 4');
+    expect(markup).toContain('Polygon rings closed: 1');
+    expect(markup).toContain('Apply repair');
+    expect(markup).toContain('Undo repair');
+    expect(markup).not.toContain('Feature count');
+  });
+
+  it('keeps repair previews available while showing a JSON syntax error', () => {
+    const document = createSpatialDocument('broken.geojson', '{', inspectGeoJSON);
+    const markup = textContent(renderToStaticMarkup(
+      <InspectorPanel
+        document={document}
+        onPreviewRepair={() => undefined}
+      />,
+    ));
+
+    expect(markup).toContain('JSON syntax error');
+    expect(markup).toContain('Geometry repairs');
+    expect(markup).toContain('Remove consecutive duplicate vertices');
+    expect(markup).not.toContain('Feature count');
   });
 
   it('offers navigation for referenced diagnostics but keeps dataset-wide diagnostics static', () => {
