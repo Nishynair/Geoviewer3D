@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'vitest';
 import {
   createSpatialDocument as createSpatialDocumentImpl,
   getGeoJSONForViewer,
-} from '../.test-dist/spatialDocument.js';
-import { addAndFlyToIfCurrent } from '../.test-dist/utils/addViewerDataSource.js';
-import { inspectGeoJSON } from '../../../packages/spatial-doctor/.test-dist/index.js';
+} from '../src/spatialDocument.ts';
+import { addAndFlyToIfCurrent } from '../src/utils/addViewerDataSource.ts';
+import { inspectGeoJSON } from 'spatial-doctor';
 
 function createSpatialDocument(name, rawText, inspect = inspectGeoJSON) {
   return createSpatialDocumentImpl(name, rawText, inspect);

@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "dev": "npm run dev --workspace @geoviewer3d/web --",
-    "test": "tsc -p apps/web/tsconfig.test.json && tsc -p packages/spatial-doctor/tsconfig.test.json && node --test apps/web/test/spatialDocument.test.mjs packages/spatial-doctor/test/inspectGeoJSON.test.mjs",
+    "test": "vitest run",
     "build": "npm run build --workspace @geoviewer3d/web --",
     "lint": "eslint .",
     "typecheck": "npm run typecheck --workspace @geoviewer3d/web -- && npm run typecheck --workspace spatial-doctor --",
@@ -21,6 +21,7 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
     "globals": "^16.3.0",
-    "typescript-eslint": "^8.65.0"
+    "typescript-eslint": "^8.65.0",
+    "vitest": "^3.2.7"
   }
 }

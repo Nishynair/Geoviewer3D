@@ -10,6 +10,7 @@
     }
   },
   "scripts": {
+    "test": "vitest run test/inspectGeoJSON.test.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

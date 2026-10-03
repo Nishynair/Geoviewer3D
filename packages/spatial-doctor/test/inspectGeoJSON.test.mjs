@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
-import { inspectGeoJSON } from '../.test-dist/index.js';
+import { test } from 'vitest';
+import { inspectGeoJSON } from '../src/index.ts';
 
 const validCases = [
   {

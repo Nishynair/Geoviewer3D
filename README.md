@@ -1,22 +1,33 @@
 # Geoviewer3D
-A simple 3D Viewer for GeoJSON files. This viewer supports 3D coordinates and allows the user to see their features on an earth model. Currently has default Bing basemap imagery, and uses OpenStreetMap 3d Buildings. This is a work in progress.
+A browser-based spatial data inspector and 3D GeoJSON viewer. The V2 foundation keeps the existing editor and globe experience while introducing a deterministic, independently tested GeoJSON inspection package.
 
 ## Live app
 ![Screenshot1](./apps/web/public/Geoviewer3D_screen1.jpg)
 There is a live working demo hosted on github pages: https://nishynair.github.io/Geoviewer3D/
 
 ## Usage
-This code uses vite to run a ReactJS web app that has a viewer and code editor. For the viewer, it uses CesiumJS to render a 3D earth model with buildings and visualize GeoJSON data. For the editor it uses Monaco editor to display a GeoJSON file in an editor. To start, create a `.env` file to save your npm token:
+The web app uses React, Monaco, and Cesium. At the repository root, create `.env.local` with your Cesium Ion access token:
 
-    token="<Insert Cesium Ion Access Token>"
-	  echo "VITE_CESIUM_TOKEN=$token" > .env
+    VITE_CESIUM_TOKEN=<your Cesium Ion access token>
 
-Then, install dependencies and run it:
+Then install dependencies and run the app or checks from the repository root:
 
     npm install
     npm run dev
+    npm test
+    npm run typecheck
+    npm run lint
+    npm run build
 
-There is a sample GeoJSON file stored in `./apps/web/src/assets/` and this is used as the default GeoJSON in the viewer / editor.
+The default editor/viewer sample is under `apps/web/src/assets/`. The static GitHub Pages workflow reads `VITE_CESIUM_TOKEN` from a repository secret and publishes the production build.
+
+## Project direction
+
+- [Domain language](./CONTEXT.md)
+- [Architecture and current boundary](./docs/ARCHITECTURE.md)
+- [Phase 1 review and verification](./docs/PHASE1_REVIEW.md)
+- [V2 handoff](./docs/CODEX_HANDOFF.md)
+- [V2 specification](./docs/V2_SPEC.md)
 
 ## License
-GPLv3. Availabe in [LICENSE](./LICENSE).
+GPLv3. Available in [LICENSE](./LICENSE).
