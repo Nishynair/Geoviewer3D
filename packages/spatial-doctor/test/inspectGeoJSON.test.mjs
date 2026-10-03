@@ -2,47 +2,101 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { inspectGeoJSON } from '../.test-dist/index.js';
 
-const validDocuments = [
+const validCases = [
   {
-    type: 'FeatureCollection',
-    features: [],
+    input: { type: 'FeatureCollection', features: [] },
+    summary: { featureCount: 0, geometryCounts: {} },
   },
   {
-    type: 'Feature',
-    geometry: null,
-    properties: null,
-  },
-  { type: 'Point', coordinates: [1, 2] },
-  { type: 'MultiPoint', coordinates: [[1, 2], [3, 4]] },
-  { type: 'LineString', coordinates: [[1, 2], [3, 4]] },
-  { type: 'MultiLineString', coordinates: [[[1, 2], [3, 4]]] },
-  { type: 'Polygon', coordinates: [[[1, 2], [3, 2], [3, 4], [1, 2]]] },
-  {
-    type: 'MultiPolygon',
-    coordinates: [[[[1, 2], [3, 2], [3, 4], [1, 2]]]],
+    input: { type: 'Feature', geometry: null, properties: null },
+    summary: { featureCount: 1, geometryCounts: {} },
   },
   {
-    type: 'GeometryCollection',
-    geometries: [{ type: 'Point', coordinates: [1, 2] }],
+    input: { type: 'Point', coordinates: [1, 2] },
+    summary: { featureCount: 0, geometryCounts: { Point: 1 } },
+  },
+  {
+    input: { type: 'MultiPoint', coordinates: [[1, 2], [3, 4]] },
+    summary: { featureCount: 0, geometryCounts: { MultiPoint: 1 } },
+  },
+  {
+    input: { type: 'LineString', coordinates: [[1, 2], [3, 4]] },
+    summary: { featureCount: 0, geometryCounts: { LineString: 1 } },
+  },
+  {
+    input: { type: 'MultiLineString', coordinates: [[[1, 2], [3, 4]]] },
+    summary: { featureCount: 0, geometryCounts: { MultiLineString: 1 } },
+  },
+  {
+    input: { type: 'Polygon', coordinates: [[[1, 2], [3, 2], [3, 4], [1, 2]]] },
+    summary: { featureCount: 0, geometryCounts: { Polygon: 1 } },
+  },
+  {
+    input: {
+      type: 'MultiPolygon',
+      coordinates: [[[[1, 2], [3, 2], [3, 4], [1, 2]]]],
+    },
+    summary: { featureCount: 0, geometryCounts: { MultiPolygon: 1 } },
+  },
+  {
+    input: { type: 'GeometryCollection', geometries: [] },
+    summary: { featureCount: 0, geometryCounts: { GeometryCollection: 1 } },
+  },
+  {
+    input: {
+      type: 'GeometryCollection',
+      geometries: [{ type: 'Point', coordinates: [1, 2] }],
+    },
+    summary: {
+      featureCount: 0,
+      geometryCounts: { GeometryCollection: 1, Point: 1 },
+    },
+  },
+  {
+    input: {
+      type: 'GeometryCollection',
+      geometries: [{ type: 'GeometryCollection', geometries: [] }],
+    },
+    summary: { featureCount: 0, geometryCounts: { GeometryCollection: 2 } },
   },
 ];
 
-test('accepts each standard GeoJSON root form, including a null Feature geometry', () => {
-  for (const input of validDocuments) {
-    assert.deepEqual(inspectGeoJSON(input), { valid: true, diagnostics: [] });
+function nestedCollectionFixture() {
+  return {
+    type: 'GeometryCollection',
+    geometries: [
+      { type: 'Point', coordinates: [1, 2] },
+      {
+        type: 'GeometryCollection',
+        source: 'preserve this foreign member',
+        geometries: [{ type: 'LineString', coordinates: [[1, 2], [3, 4]] }],
+      },
+    ],
+  };
+}
+
+test('summarizes every standard GeoJSON root, including a null Feature geometry', () => {
+  for (const { input, summary } of validCases) {
+    assert.deepEqual(inspectGeoJSON(input), {
+      valid: true,
+      summary,
+      diagnostics: [],
+    });
   }
 });
 
 test('returns an independent valid report for each call', () => {
-  const first = inspectGeoJSON(validDocuments[0]);
+  const first = inspectGeoJSON(validCases[2].input);
   first.diagnostics.push({
     code: 'invalid-geojson',
     severity: 'error',
     message: 'caller mutation',
   });
+  first.summary.geometryCounts.Point = 42;
 
-  assert.deepEqual(inspectGeoJSON(validDocuments[0]), {
+  assert.deepEqual(inspectGeoJSON(validCases[2].input), {
     valid: true,
+    summary: validCases[2].summary,
     diagnostics: [],
   });
 });
@@ -54,6 +108,7 @@ test('returns stable invalid-input diagnostics for parseable non-GeoJSON values'
 
   assert.deepEqual(first, second);
   assert.equal(first.valid, false);
+  assert.equal(first.summary, null);
   assert.ok(first.diagnostics.length > 0);
   for (const diagnostic of first.diagnostics) {
     assert.equal(diagnostic.code, 'invalid-geojson');
@@ -76,6 +131,93 @@ test('returns an invalid outcome instead of throwing for unsupported values', ()
 
   for (const input of [null, undefined, 1, [], circular]) {
     assert.doesNotThrow(() => inspectGeoJSON(input));
-    assert.equal(inspectGeoJSON(input).valid, false);
+    const result = inspectGeoJSON(input);
+    assert.equal(result.valid, false);
+    assert.equal(result.summary, null);
+  }
+});
+
+test('counts nested GeometryCollections at geometry, Feature, and FeatureCollection roots', () => {
+  const expectedGeometryCounts = {
+    GeometryCollection: 2,
+    Point: 1,
+    LineString: 1,
+  };
+  const cases = [
+    {
+      input: nestedCollectionFixture(),
+      featureCount: 0,
+    },
+    {
+      input: {
+        type: 'Feature',
+        geometry: nestedCollectionFixture(),
+        properties: {},
+      },
+      featureCount: 1,
+    },
+    {
+      input: {
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            geometry: nestedCollectionFixture(),
+            properties: {},
+          },
+          { type: 'Feature', properties: null, geometry: null },
+        ],
+      },
+      featureCount: 2,
+    },
+  ];
+
+  for (const { input, featureCount } of cases) {
+    const originalText = JSON.stringify(input);
+    assert.deepEqual(inspectGeoJSON(input), {
+      valid: true,
+      summary: { featureCount, geometryCounts: expectedGeometryCounts },
+      diagnostics: [],
+    });
+    assert.equal(JSON.stringify(input), originalText);
+  }
+});
+
+test('rejects invalid members and metadata inside nested GeometryCollections', () => {
+  const invalidInputs = [
+    {
+      type: 'GeometryCollection',
+      geometries: [
+        { type: 'GeometryCollection', geometries: [{ type: 'Circle' }] },
+      ],
+    },
+    {
+      type: 'GeometryCollection',
+      geometries: [
+        { type: 'GeometryCollection', geometries: [], bbox: [0, 1, 2] },
+      ],
+    },
+    {
+      type: 'GeometryCollection',
+      geometries: [
+        { type: 'GeometryCollection', geometries: [], properties: {} },
+      ],
+    },
+    {
+      type: 'GeometryCollection',
+      geometries: [{ type: 'GeometryCollection', geometries: null }],
+    },
+    {
+      type: 'GeometryCollection',
+      geometries: [{ type: 'GeometryCollection', geometries: [null] }],
+    },
+  ];
+
+  for (const input of invalidInputs) {
+    const first = inspectGeoJSON(input);
+    assert.deepEqual(first, inspectGeoJSON(input));
+    assert.equal(first.valid, false);
+    assert.equal(first.summary, null);
+    assert.ok(first.diagnostics.length > 0);
   }
 });
