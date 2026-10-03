@@ -9,6 +9,7 @@ import KlccFlat from './assets/sampleJSON/klcc-flat.json';
 import Viewer3D from './components/Viewer';
 import MenuBar from './components/MenuBar';
 import MinimizeMaximizeButton from './components/Buttons/MinimizeMaximizeButton';
+import { inspectGeoJSON } from 'spatial-doctor';
 import {
   createSpatialDocument,
   getGeoJSONForViewer,
@@ -17,7 +18,7 @@ import {
 
 function App() {
   const [document, setDocument] = useState<SpatialDocument>(() =>
-    createSpatialDocument('klcc-flat.json', JSON.stringify(KlccFlat, null, 2)),
+    createSpatialDocument('klcc-flat.json', JSON.stringify(KlccFlat, null, 2), inspectGeoJSON),
   );
   const [viewerDocument, setViewerDocument] = useState(document);
   const theme = useTheme();
@@ -31,12 +32,12 @@ function App() {
 
   const handleTextChange = (rawText: string) => {
     setDocument((currentDocument) =>
-      createSpatialDocument(currentDocument.source.name, rawText),
+      createSpatialDocument(currentDocument.source.name, rawText, inspectGeoJSON),
     );
   };
 
   const handleFileLoad = (name: string, rawText: string) => {
-    setDocument(createSpatialDocument(name, rawText));
+    setDocument(createSpatialDocument(name, rawText, inspectGeoJSON));
   };
 
   return (

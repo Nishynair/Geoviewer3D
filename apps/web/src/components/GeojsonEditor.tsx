@@ -35,7 +35,7 @@ export default function GeojsonEditor({
   const monacoRef = useRef<Monaco | null>(null);
   const decorationIdsRef = useRef<string[]>([]);
   const errorMessages = document.parseError?.issues ?? NO_VALIDATION_ISSUES;
-  const currentErrorMessage = errorMessages[0]?.message ?? null;
+  const currentErrorMessage = document.parseError?.message ?? null;
   const lineNumbersMinChars = isCompact ? 2 : 4;
   const editorFontSize = isCompact ? 12 : 14;
   const minimapEnabled = !isCompact;
