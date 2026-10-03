@@ -1,11 +1,18 @@
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
 import type { Diagnostic } from 'spatial-doctor';
+import type { GeoJSON as GeoJsonValue } from 'geojson';
 import type { SpatialDocument } from '../spatialDocument';
+import {
+  hasDiagnosticFeatureReference,
+  hasDiagnosticSourceLocation,
+} from '../utils/diagnosticNavigation';
 
 interface InspectorPanelProps {
   document: SpatialDocument;
+  onSelectDiagnostic?: (diagnostic: Diagnostic) => void;
 }
 
 const DIAGNOSTIC_DEFINITIONS: Record<Diagnostic['code'], { title: string; message: string }> = {
@@ -28,7 +35,17 @@ function Metric({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-function DiagnosticList({ diagnostics }: { diagnostics: Diagnostic[] }) {
+function DiagnosticList({
+  diagnostics,
+  onSelectDiagnostic,
+  featureGeoJSON,
+  sourceTextLength,
+}: {
+  diagnostics: Diagnostic[];
+  onSelectDiagnostic?: (diagnostic: Diagnostic) => void;
+  featureGeoJSON: GeoJsonValue | null;
+  sourceTextLength: number;
+}) {
   if (diagnostics.length === 0) {
     return (
       <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
@@ -41,6 +58,8 @@ function DiagnosticList({ diagnostics }: { diagnostics: Diagnostic[] }) {
     <Box component="ul" aria-label="Inspection diagnostics" sx={{ listStyle: 'none', p: 0, m: 0 }}>
       {diagnostics.map((diagnostic, index) => {
         const definition = DIAGNOSTIC_DEFINITIONS[diagnostic.code];
+        const hasFeature = hasDiagnosticFeatureReference(diagnostic, featureGeoJSON);
+        const hasSource = hasDiagnosticSourceLocation(diagnostic, sourceTextLength);
         return (
           <Box component="li" key={`${diagnostic.code}-${index}`} sx={{ mt: 1.5 }}>
             <Alert severity={diagnostic.severity}>
@@ -53,6 +72,19 @@ function DiagnosticList({ diagnostics }: { diagnostics: Diagnostic[] }) {
               <Typography component="code" variant="caption" sx={{ display: 'block', mt: 0.75 }}>
                 {diagnostic.code} · {diagnostic.severity}
               </Typography>
+              {onSelectDiagnostic && (hasFeature || hasSource) && (
+                <Button
+                  size="small"
+                  sx={{ mt: 1 }}
+                  onClick={() => onSelectDiagnostic(diagnostic)}
+                >
+                  {hasSource
+                    ? hasFeature
+                      ? 'Show feature and source'
+                      : 'Show source'
+                    : 'Show feature'}
+                </Button>
+              )}
             </Alert>
           </Box>
         );
@@ -61,7 +93,7 @@ function DiagnosticList({ diagnostics }: { diagnostics: Diagnostic[] }) {
   );
 }
 
-export default function InspectorPanel({ document }: InspectorPanelProps) {
+export default function InspectorPanel({ document, onSelectDiagnostic }: InspectorPanelProps) {
   if (document.parseError?.kind === 'json-syntax') {
     return (
       <Box component="section" aria-labelledby="inspector-heading" sx={{ height: '100%', overflowY: 'auto', p: 2 }}>
@@ -95,7 +127,12 @@ export default function InspectorPanel({ document }: InspectorPanelProps) {
         <Typography variant="body2" color="text.secondary">
           The current document is not valid GeoJSON, so its summary metrics are unavailable.
         </Typography>
-        <DiagnosticList diagnostics={document.report.diagnostics} />
+        <DiagnosticList
+          diagnostics={document.report.diagnostics}
+          onSelectDiagnostic={onSelectDiagnostic}
+          featureGeoJSON={null}
+          sourceTextLength={document.source.rawText.length}
+        />
       </Box>
     );
   }
@@ -165,7 +202,12 @@ export default function InspectorPanel({ document }: InspectorPanelProps) {
         )}
       </Box>
 
-      <DiagnosticList diagnostics={document.report.diagnostics} />
+      <DiagnosticList
+        diagnostics={document.report.diagnostics}
+        onSelectDiagnostic={onSelectDiagnostic}
+        featureGeoJSON={document.parsed}
+        sourceTextLength={document.source.rawText.length}
+      />
 
     </Box>
   );

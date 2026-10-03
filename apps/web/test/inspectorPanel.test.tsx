@@ -9,6 +9,63 @@ function renderDocument(rawText: string, name = 'sample.geojson'): string {
   return renderToStaticMarkup(<InspectorPanel document={document} />);
 }
 
+function renderWithDiagnostic(
+  diagnostic: { featureId?: string | number; featureIndex?: number; sourceLocation?: { start: number; end: number } },
+): string {
+  const document = createSpatialDocument(
+    'invalid.geojson',
+    JSON.stringify({ type: 'Circle', coordinates: [1, 2] }),
+    inspectGeoJSON,
+  );
+  if (document.report?.valid !== false) throw new Error('Expected an invalid fixture document.');
+  const referencedDocument = {
+    ...document,
+    report: {
+      ...document.report,
+      diagnostics: [{
+        code: 'invalid-geojson' as const,
+        severity: 'error' as const,
+        message: 'Invalid feature',
+        ...diagnostic,
+      }],
+    },
+  };
+  return renderToStaticMarkup(
+    <InspectorPanel
+      document={referencedDocument}
+      onSelectDiagnostic={() => undefined}
+    />,
+  );
+}
+
+function renderValidFeatureDiagnostic(): string {
+  const rawText = JSON.stringify({
+    type: 'Feature',
+    id: 'tower',
+    properties: {},
+    geometry: { type: 'Point', coordinates: [1, 2] },
+  });
+  const report = inspectGeoJSON(JSON.parse(rawText));
+  const document = createSpatialDocument(
+    'tower.geojson',
+    rawText,
+    () => ({
+      ...report,
+      diagnostics: [{
+        code: 'invalid-geojson',
+        severity: 'warning',
+        message: 'Feature-scoped diagnostic fixture',
+        featureId: 'tower',
+        featureIndex: 0,
+        sourceLocation: { start: 2, end: 18 },
+      }],
+    }),
+  );
+  return renderToStaticMarkup(
+    <InspectorPanel document={document} onSelectDiagnostic={() => undefined} />,
+  );
+}
+
 function textContent(markup: string): string {
   return markup
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/g, ' ')
@@ -122,5 +179,31 @@ describe('InspectorPanel', () => {
     expect(markup).not.toContain('Feature count');
     expect(markup).not.toContain('Coordinate tuples');
     expect(markup).not.toContain('Point 1');
+  });
+
+  it('offers navigation for referenced diagnostics but keeps dataset-wide diagnostics static', () => {
+    const datasetWide = textContent(renderWithDiagnostic({}));
+    const featureScoped = textContent(renderWithDiagnostic({
+      featureIndex: 1,
+      sourceLocation: { start: 12, end: 28 },
+    }));
+    const sourceOnly = textContent(renderWithDiagnostic({
+      sourceLocation: { start: 12, end: 28 },
+    }));
+    const unavailableFeature = textContent(renderWithDiagnostic({ featureIndex: 0 }));
+
+    expect(datasetWide).not.toContain('Show feature');
+    expect(featureScoped).toContain('Show source');
+    expect(featureScoped).not.toContain('Show feature');
+    expect(sourceOnly).toContain('Show source');
+    expect(unavailableFeature).not.toContain('Show feature');
+  });
+
+  it('offers feature navigation from a valid canonical document report', () => {
+    const markup = textContent(renderValidFeatureDiagnostic());
+
+    expect(markup).toContain('Feature count 1');
+    expect(markup).toContain('Show feature and source');
+    expect(markup).not.toContain('not valid GeoJSON');
   });
 });

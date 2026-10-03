@@ -1,5 +1,5 @@
 import './App.css'
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import { useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
@@ -12,6 +12,7 @@ import MinimizeMaximizeButton from './components/Buttons/MinimizeMaximizeButton'
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import { inspectGeoJSON } from 'spatial-doctor';
+import type { Diagnostic } from 'spatial-doctor';
 import InspectorPanel from './components/InspectorPanel';
 import {
   createSpatialDocument,
@@ -24,10 +25,23 @@ function App() {
     createSpatialDocument('klcc-flat.json', JSON.stringify(KlccFlat, null, 2), inspectGeoJSON),
   );
   const [viewerDocument, setViewerDocument] = useState(document);
+  const [navigation, setNavigation] = useState<{
+    document: SpatialDocument;
+    diagnostic: Diagnostic;
+    requestId: number;
+  } | null>(null);
+  const navigationSequence = useRef(0);
   const theme = useTheme();
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'));
   const [expanded, setExpanded] = useState(false);
   const [rightPanel, setRightPanel] = useState<'editor' | 'inspector'>('editor');
+  const activeNavigation = navigation?.document === document ? navigation : null;
+
+  const handleSelectDiagnostic = (diagnostic: Diagnostic) => {
+    navigationSequence.current += 1;
+    setNavigation({ document, diagnostic, requestId: navigationSequence.current });
+    if (diagnostic.sourceLocation) setRightPanel('editor');
+  };
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setViewerDocument(document), 1000);
@@ -93,6 +107,12 @@ function App() {
           
           <Viewer3D
             geojson={getGeoJSONForViewer(viewerDocument)}
+            selectedDiagnostic={viewerDocument === document
+              ? activeNavigation?.diagnostic ?? null
+              : null}
+            navigationRequestId={viewerDocument === document
+              ? activeNavigation?.requestId ?? 0
+              : 0}
             sx={{
               width: "100%",
               height: "100%",
@@ -134,6 +154,8 @@ function App() {
               document={document}
               onTextChange={handleTextChange}
               isCompact={isSmallScreen}
+              sourceLocation={activeNavigation?.diagnostic.sourceLocation ?? null}
+              sourceLocationRequestId={activeNavigation?.requestId ?? 0}
             />
           </Box>
           <Box
@@ -143,7 +165,10 @@ function App() {
             hidden={rightPanel !== 'inspector'}
             sx={{ flex: '1 1 auto', minHeight: 0, overflow: 'hidden', display: rightPanel === 'inspector' ? 'block' : 'none' }}
           >
-            <InspectorPanel document={document} />
+            <InspectorPanel
+              document={document}
+              onSelectDiagnostic={handleSelectDiagnostic}
+            />
           </Box>
         </Box>
       </Box>

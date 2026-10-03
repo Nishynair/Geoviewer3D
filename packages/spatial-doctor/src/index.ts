@@ -6,6 +6,14 @@ export interface Diagnostic {
   code: 'invalid-geojson';
   severity: DiagnosticSeverity;
   message: string;
+  featureId?: string | number;
+  featureIndex?: number;
+  sourceLocation?: {
+    /** Zero-based UTF-16 offset in the original source text. */
+    start: number;
+    /** Exclusive zero-based UTF-16 offset in the original source text. */
+    end: number;
+  };
 }
 
 type ValidatedGeoJSON = ReturnType<typeof check>;
@@ -47,7 +55,7 @@ export type InspectionReport =
       valid: true;
       summary: InspectionSummary;
       coordinates: CoordinateSummary;
-      diagnostics: [];
+      diagnostics: Diagnostic[];
     }
   | {
       valid: false;
