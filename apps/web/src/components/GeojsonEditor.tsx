@@ -6,6 +6,8 @@ import StatusAlert from "./StatusAlert"
 import { errorColor } from "../consts";
 import type { SpatialDocument } from "../spatialDocument";
 import type { HintIssue } from "@placemarkio/check-geojson";
+import type { SourceTextLocation } from "../utils/diagnosticNavigation";
+import { clearSourceLocationSelection, revealSourceLocation } from "../utils/editorLocation";
 
 type MonacoEditor = Parameters<OnMount>[0];
 type Monaco = Parameters<OnMount>[1];
@@ -16,6 +18,8 @@ interface GeojsonEditorProps {
   onTextChange: (text: string) => void;
   sx?: SxProps<Theme>;
   isCompact?: boolean;
+  sourceLocation?: SourceTextLocation | null;
+  sourceLocationRequestId?: number;
 }
 
 const extractColumnLineFromErrMsg = (errorMessage: string): [string | undefined, string | undefined] => {
@@ -30,10 +34,13 @@ export default function GeojsonEditor({
   onTextChange,
   sx = {},
   isCompact = false,
+  sourceLocation = null,
+  sourceLocationRequestId = 0,
 }: GeojsonEditorProps) {
   const editorRef = useRef<MonacoEditor | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
   const decorationIdsRef = useRef<string[]>([]);
+  const locationRequestRef = useRef(0);
   const errorMessages = document.parseError?.issues ?? NO_VALIDATION_ISSUES;
   const currentErrorMessage = document.parseError?.message ?? null;
   const lineNumbersMinChars = isCompact ? 2 : 4;
@@ -97,6 +104,14 @@ export default function GeojsonEditor({
 
   useEffect(() => {
     const editor = editorRef.current;
+    if (!editor || sourceLocationRequestId === locationRequestRef.current) return;
+    locationRequestRef.current = sourceLocationRequestId;
+    if (sourceLocation) revealSourceLocation(editor, sourceLocation);
+    else clearSourceLocationSelection(editor);
+  }, [sourceLocation, sourceLocationRequestId]);
+
+  useEffect(() => {
+    const editor = editorRef.current;
     if (!editor) return;
 
     editor.updateOptions({
@@ -111,6 +126,9 @@ export default function GeojsonEditor({
   const onMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
+    locationRequestRef.current = sourceLocationRequestId;
+
+    if (sourceLocation) revealSourceLocation(editor, sourceLocation);
 
     editor.updateOptions({
       fontLigatures: true,

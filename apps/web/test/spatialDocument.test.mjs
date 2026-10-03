@@ -28,6 +28,33 @@ test('valid GeoJSON becomes the canonical parsed document and reaches the viewer
   assert.deepEqual(getGeoJSONForViewer(document), document.parsed);
 });
 
+test('valid canonical documents preserve optional feature and source references in the report', () => {
+  const input = {
+    type: 'Feature',
+    id: 'tower',
+    properties: {},
+    geometry: { type: 'Point', coordinates: [101.7, 3.1] },
+  };
+  const rawText = JSON.stringify(input);
+  const baseReport = inspectGeoJSON(input);
+  const referencedReport = {
+    ...baseReport,
+    diagnostics: [{
+      code: 'invalid-geojson',
+      severity: 'warning',
+      message: 'Feature scoped diagnostic fixture',
+      featureId: 'tower',
+      featureIndex: 0,
+      sourceLocation: { start: 2, end: 18 },
+    }],
+  };
+  const document = createSpatialDocument('tower.geojson', rawText, () => referencedReport);
+
+  assert.equal(document.report?.valid, true);
+  assert.deepEqual(document.report?.diagnostics, referencedReport.diagnostics);
+  assert.deepEqual(getGeoJSONForViewer(document), input);
+});
+
 test('inspects parsed values once and never sends malformed source to the inspector', () => {
   const received = [];
   const inspect = (value) => {
