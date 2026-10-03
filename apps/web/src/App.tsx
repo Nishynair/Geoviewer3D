@@ -9,7 +9,10 @@ import KlccFlat from './assets/sampleJSON/klcc-flat.json';
 import Viewer3D from './components/Viewer';
 import MenuBar from './components/MenuBar';
 import MinimizeMaximizeButton from './components/Buttons/MinimizeMaximizeButton';
+import Tabs from '@mui/material/Tabs';
+import Tab from '@mui/material/Tab';
 import { inspectGeoJSON } from 'spatial-doctor';
+import InspectorPanel from './components/InspectorPanel';
 import {
   createSpatialDocument,
   getGeoJSONForViewer,
@@ -24,6 +27,7 @@ function App() {
   const theme = useTheme();
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'));
   const [expanded, setExpanded] = useState(false);
+  const [rightPanel, setRightPanel] = useState<'editor' | 'inspector'>('editor');
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setViewerDocument(document), 1000);
@@ -99,6 +103,8 @@ function App() {
         {/* RIGHT: GeoJSON Editor */}
         <Box
           sx={{
+            display: 'flex',
+            flexDirection: 'column',
             minWidth: 0,
             height: "100%",
             borderRadius: 2,
@@ -108,11 +114,37 @@ function App() {
             pointerEvents: expanded ? "none" : "auto",
           }}
         >
-          <GeojsonEditor
-            document={document}
-            onTextChange={handleTextChange}
-            isCompact={isSmallScreen}
-          />
+          <Tabs
+            value={rightPanel}
+            onChange={(_event, value: 'editor' | 'inspector') => setRightPanel(value)}
+            aria-label="Document workspace"
+            sx={{ flex: '0 0 auto', minHeight: 42 }}
+          >
+            <Tab label="Editor" value="editor" id="workspace-tab-editor" aria-controls="workspace-panel-editor" />
+            <Tab label="Inspector" value="inspector" id="workspace-tab-inspector" aria-controls="workspace-panel-inspector" />
+          </Tabs>
+          <Box
+            role="tabpanel"
+            id="workspace-panel-editor"
+            aria-labelledby="workspace-tab-editor"
+            hidden={rightPanel !== 'editor'}
+            sx={{ flex: '1 1 auto', minHeight: 0, overflow: 'hidden', display: rightPanel === 'editor' ? 'block' : 'none' }}
+          >
+            <GeojsonEditor
+              document={document}
+              onTextChange={handleTextChange}
+              isCompact={isSmallScreen}
+            />
+          </Box>
+          <Box
+            role="tabpanel"
+            id="workspace-panel-inspector"
+            aria-labelledby="workspace-tab-inspector"
+            hidden={rightPanel !== 'inspector'}
+            sx={{ flex: '1 1 auto', minHeight: 0, overflow: 'hidden', display: rightPanel === 'inspector' ? 'block' : 'none' }}
+          >
+            <InspectorPanel document={document} />
+          </Box>
         </Box>
       </Box>
     </Box>
