@@ -52,6 +52,9 @@ function Metric({ label, value }: { label: string; value: string | number }) {
 
 function formatDistance(distance: DistanceSummary): string {
   if (distance.totalSegments === 0) return 'No line segments to measure';
+  if (distance.rangeExceeded) {
+    return `Unavailable (sum exceeds numeric range; ${distance.measuredSegments} of ${distance.totalSegments} segments measured)`;
+  }
   if (distance.meters === null) {
     return `Unavailable (${distance.measuredSegments} of ${distance.totalSegments} segments measured)`;
   }
@@ -141,13 +144,16 @@ function SelectedGeometryMeasurements({ geometry }: { geometry: Geometry | null 
               <TableBody>
                 {line.coordinates.map((coordinate) => {
                   const nextSegment = line.segments[coordinate.coordinateIndex];
+                  const nextCoordinate = line.coordinates[coordinate.coordinateIndex + 1];
                   const grade = nextSegment?.gradePercent;
                   const gradeLabel = grade === undefined || grade === null
                     ? nextSegment?.horizontalMeters === 0
                       ? 'Unavailable (zero run)'
-                      : nextSegment?.verticalChangeMeters === null
+                      : coordinate.z === null || nextCoordinate?.z === null
                         ? 'Unavailable (missing Z)'
-                        : 'Unavailable'
+                        : nextSegment?.horizontalMeters === null
+                          ? 'Unavailable (unsupported lon/lat)'
+                          : 'Unavailable (numeric range)'
                     : `${grade.toFixed(2)}%`;
                   return (
                     <TableRow key={coordinate.coordinateIndex}>

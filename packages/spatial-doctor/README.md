@@ -58,7 +58,9 @@ the package performs no vertical datum inference or conversion. A 3D segment is
 measured only when both endpoint Z values and horizontal distance are available.
 Distance summaries give measured and total segment counts; a partial sum is
 never presented as a complete length, and no 3D distance is reported as zero
-when no segment has two Z values.
+when no segment has two Z values. If a segment or sum exceeds the finite numeric
+range, its measurement is unavailable instead of returning `Infinity` or
+`NaN`; aggregate overflow is marked with `rangeExceeded: true`.
 
 ## Diagnostic navigation references
 

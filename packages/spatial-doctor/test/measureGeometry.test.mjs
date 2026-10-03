@@ -7,6 +7,20 @@ const zLine = {
   coordinates: [[0, 0, 0], [0, 0.001, 10], [0, 0.002, 20]],
 };
 
+function assertOnlyFiniteNumbers(value) {
+  if (typeof value === 'number') {
+    assert.ok(Number.isFinite(value), `expected finite number, got ${value}`);
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach(assertOnlyFiniteNumbers);
+    return;
+  }
+  if (typeof value === 'object' && value !== null) {
+    Object.values(value).forEach(assertOnlyFiniteNumbers);
+  }
+}
+
 test('reports ordered Z profile and 2D, 3D, and segment grade for a complete line', () => {
   const result = measureGeoJSONGeometry(zLine);
 
@@ -172,4 +186,36 @@ test('returns unavailable for non-geometry or invalid coordinate input without t
     assert.doesNotThrow(() => measureGeoJSONGeometry(input));
     assert.equal(measureGeoJSONGeometry(input), null);
   }
+});
+
+test('keeps Z means and deltas finite for valid extreme finite ordinates', () => {
+  const result = measureGeoJSONGeometry({
+    type: 'LineString',
+    coordinates: [[0, 0, 1e308], [0, 0.001, 1e308], [0, 0.002, -1e308], [0, 0.003, 1e308]],
+  });
+
+  assert.ok(result);
+  assert.equal(result.zStatistics.minimum, -1e308);
+  assert.equal(result.zStatistics.maximum, 1e308);
+  assert.equal(result.zStatistics.mean, 5e307);
+  assert.equal(result.lineProfiles[0]?.segments[1]?.verticalChangeMeters, null);
+  assert.equal(result.lineProfiles[0]?.segments[1]?.distance3DMeters, null);
+  assert.equal(result.lineProfiles[0]?.segments[1]?.gradePercent, null);
+  assert.equal(result.threeDimensionalLength.measuredSegments, 1);
+  assertOnlyFiniteNumbers(result);
+});
+
+test('marks an unrepresentable aggregate 3D length and grade unavailable', () => {
+  const result = measureGeoJSONGeometry({
+    type: 'LineString',
+    coordinates: [[0, 0, 0], [0, 0.000000001, 1.1e308], [0, 0.000000002, 0]],
+  });
+
+  assert.ok(result);
+  assert.equal(result.lineProfiles[0]?.segments[0]?.gradePercent, null);
+  assert.equal(result.threeDimensionalLength.meters, null);
+  assert.equal(result.threeDimensionalLength.rangeExceeded, true);
+  assert.equal(result.threeDimensionalLength.measuredSegments, 2);
+  assert.equal(result.threeDimensionalLength.complete, false);
+  assertOnlyFiniteNumbers(result);
 });

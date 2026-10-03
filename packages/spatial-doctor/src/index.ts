@@ -46,6 +46,8 @@ export interface DistanceSummary {
   measuredSegments: number;
   totalSegments: number;
   complete: boolean;
+  /** True when a finite segment sum could not be represented as a number. */
+  rangeExceeded: boolean;
 }
 
 export interface LineSegmentMeasurement {
@@ -314,15 +316,26 @@ function horizontalDistanceMeters(from: Position, to: Position): number | null {
 }
 
 function distanceSummary(values: Array<number | null>): DistanceSummary {
-  const measuredValues = values.filter((value): value is number => value !== null);
+  let meters = 0;
+  let measuredSegments = 0;
+  let rangeExceeded = false;
+  for (const value of values) {
+    if (value === null || !Number.isFinite(value)) continue;
+    measuredSegments += 1;
+    const nextMeters = meters + value;
+    if (!Number.isFinite(nextMeters)) {
+      rangeExceeded = true;
+    } else if (!rangeExceeded) {
+      meters = nextMeters;
+    }
+  }
+
   return {
-    meters:
-      measuredValues.length > 0
-        ? measuredValues.reduce((total, value) => total + value, 0)
-        : null,
-    measuredSegments: measuredValues.length,
+    meters: measuredSegments > 0 && !rangeExceeded ? meters : null,
+    measuredSegments,
     totalSegments: values.length,
-    complete: measuredValues.length === values.length,
+    complete: measuredSegments === values.length && !rangeExceeded,
+    rangeExceeded,
   };
 }
 
@@ -345,28 +358,49 @@ function lineProfile(path: number[], positions: Position[]): LineProfile {
         const horizontalMeters = horizontalDistanceMeters(previous, position);
         if (horizontalMeters === null) {
           distanceAlongIsAvailable = false;
-        } else {
-          distanceAlongMeters += horizontalMeters;
         }
 
         const previousZ = previous[2] ?? null;
-        const verticalChangeMeters =
+        const rawVerticalChangeMeters =
           previousZ === null || z === null ? null : z - previousZ;
-        const distance3DMeters =
+        const verticalChangeMeters =
+          rawVerticalChangeMeters === null || !Number.isFinite(rawVerticalChangeMeters)
+            ? null
+            : rawVerticalChangeMeters;
+        const rawDistance3DMeters =
           horizontalMeters === null || verticalChangeMeters === null
             ? null
             : Math.hypot(horizontalMeters, verticalChangeMeters);
+        const distance3DMeters =
+          rawDistance3DMeters === null || !Number.isFinite(rawDistance3DMeters)
+            ? null
+            : rawDistance3DMeters;
+        const rawGradePercent =
+          horizontalMeters === null ||
+          horizontalMeters === 0 ||
+          verticalChangeMeters === null
+            ? null
+            : (verticalChangeMeters / horizontalMeters) * 100;
         segments.push({
           horizontalMeters,
           verticalChangeMeters,
           distance3DMeters,
           gradePercent:
-            horizontalMeters === null ||
-            horizontalMeters === 0 ||
-            verticalChangeMeters === null
+            rawGradePercent === null || !Number.isFinite(rawGradePercent)
               ? null
-              : (verticalChangeMeters / horizontalMeters) * 100,
+              : rawGradePercent,
         });
+
+        if (horizontalMeters === null) {
+          distanceAlongIsAvailable = false;
+        } else if (distanceAlongIsAvailable) {
+          const nextDistanceAlongMeters = distanceAlongMeters + horizontalMeters;
+          if (Number.isFinite(nextDistanceAlongMeters)) {
+            distanceAlongMeters = nextDistanceAlongMeters;
+          } else {
+            distanceAlongIsAvailable = false;
+          }
+        }
       }
     }
 
@@ -500,9 +534,17 @@ export function measureGeoJSONGeometry(
     const zValues = coordinateZ.flatMap(({ z }) => (z === null ? [] : [z]));
     let zMinimum: number | null = null;
     let zMaximum: number | null = null;
+    let zMean: number | null = null;
+    let zCount = 0;
     for (const z of zValues) {
       zMinimum = zMinimum === null ? z : Math.min(zMinimum, z);
       zMaximum = zMaximum === null ? z : Math.max(zMaximum, z);
+      zCount += 1;
+      const weightedMean =
+        zMean === null
+          ? z
+          : zMean * ((zCount - 1) / zCount) + z / zCount;
+      zMean = Math.min(zMaximum, Math.max(zMinimum, weightedMean));
     }
 
     return {
@@ -513,10 +555,7 @@ export function measureGeoJSONGeometry(
       zStatistics: {
         minimum: zMinimum,
         maximum: zMaximum,
-        mean:
-          zValues.length > 0
-            ? zValues.reduce((total, value) => total + value, 0) / zValues.length
-            : null,
+        mean: zMean,
         measuredCoordinates: zValues.length,
         missingCoordinates: coordinateZ.length - zValues.length,
       },
