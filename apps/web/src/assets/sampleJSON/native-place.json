@@ -1,0 +1,37 @@
+{
+  "type": "FeatureCollection",
+  "conformsTo": [
+    "http://www.opengis.net/spec/json-fg-1/1.0/conf/core"
+  ],
+  "coordRefSys": {
+    "type": "Reference",
+    "href": "http://www.opengis.net/def/crs/EPSG/0/3857"
+  },
+  "links": [
+    {
+      "rel": "profile",
+      "href": "http://www.opengis.net/def/profile/OGC/0/jsonfg-plus"
+    }
+  ],
+  "features": [
+    {
+      "type": "Feature",
+      "id": "sample-building",
+      "properties": {
+        "name": "Sample building"
+      },
+      "geometry": {
+        "type": "MultiPoint",
+        "coordinates": [
+          [101.713, 3.158, 50],
+          [101.714, 3.159, 50]
+        ]
+      },
+      "place": {
+        "type": "Point",
+        "coordinates": [11327237.4, 351778.6]
+      },
+      "time": "2025-01-01T00:00:00Z"
+    }
+  ]
+}

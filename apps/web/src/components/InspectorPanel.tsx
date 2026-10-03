@@ -7,6 +7,7 @@ import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
+import { useMemo } from 'react';
 import {
   inspectGeoJSON,
   measureGeoJSONGeometry,
@@ -24,6 +25,7 @@ import { getGeoJSONFeature } from '../utils/diagnosticNavigation';
 import { resolveDiagnosticSourceLocation } from '../utils/featureSourceLocation';
 import type { GeoJSONRepairKind, GeoJSONRepairPreview } from '../utils/geoJsonRepairs';
 import type { TerrainComparisonResult } from '../utils/terrainComparison';
+import { planSpatialConversion, type ConversionAccount, type SpatialConversionPlan } from '../utils/formatConversion';
 
 interface InspectorPanelProps {
   document: SpatialDocument;
@@ -191,6 +193,91 @@ function JsonFgDetails({ info }: { info: JsonFgInfo }) {
             </Typography>
           ))}
         </Box>
+      )}
+    </Box>
+  );
+}
+
+function downloadConvertedFile(plan: Extract<SpatialConversionPlan, { status: 'ready' }>) {
+  const blob = new Blob([plan.outputRawText], { type: 'application/json' });
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = plan.targetName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
+
+function ConversionAccountSection({ account }: { account: ConversionAccount }) {
+  const groups: Array<{ title: string; items: string[] }> = [
+    { title: 'Preserved', items: account.preserved },
+    { title: 'Changed', items: account.changed },
+    { title: 'Approximated', items: account.approximated },
+    { title: 'Lost', items: account.lost },
+  ];
+
+  return (
+    <Box component="div" aria-label="Conversion preservation and loss account" sx={{ mt: 1 }}>
+      {groups.map(({ title, items }) => (
+        <Box component="section" key={title} sx={{ mt: 1 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>{title}</Typography>
+          {items.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">None.</Typography>
+          ) : (
+            <Box component="ul" sx={{ pl: 2.5, mt: 0.25, mb: 0 }}>
+              {items.map((item, index) => (
+                <Typography component="li" variant="body2" key={`${item}-${index}`}>
+                  {item}
+                </Typography>
+              ))}
+            </Box>
+          )}
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+function FormatConversionPanel({ sourceDocument }: { sourceDocument: SpatialDocument }) {
+  const plan = useMemo(() => planSpatialConversion(sourceDocument), [sourceDocument]);
+
+  return (
+    <Box component="section" aria-labelledby="format-conversion-heading" sx={{ mt: 2 }}>
+      <Typography id="format-conversion-heading" component="h3" variant="subtitle1">
+        Format conversion
+      </Typography>
+      {plan.status === 'blocked' ? (
+        <Alert severity="info" sx={{ mt: 0.75 }}>
+          <Typography component="h4" variant="body2" sx={{ fontWeight: 600 }}>
+            Conversion unavailable
+          </Typography>
+          <Typography component="p" variant="body2" sx={{ mb: 0, mt: 0.25 }}>
+            {plan.reason}
+          </Typography>
+        </Alert>
+      ) : (
+        <details>
+          <summary>Review {plan.from === 'geojson' ? 'GeoJSON → JSON-FG' : 'JSON-FG → GeoJSON'} conversion</summary>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+            Review the account before downloading. Your current source remains unchanged. Output file: {plan.targetName}
+          </Typography>
+          <ConversionAccountSection account={plan.account} />
+          <details>
+            <summary>View converted output</summary>
+            <Box
+              component="pre"
+              aria-label="Converted format output"
+              sx={{ maxHeight: 240, overflow: 'auto', p: 1, bgcolor: 'action.hover', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
+            >
+              {plan.outputRawText}
+            </Box>
+          </details>
+          <Button size="small" variant="contained" sx={{ mt: 1 }} onClick={() => downloadConvertedFile(plan)}>
+            Download converted file
+          </Button>
+        </details>
       )}
     </Box>
   );
@@ -594,6 +681,7 @@ export default function InspectorPanel({
           onApply={onApplyRepair}
           onUndo={onUndoRepair}
         />
+        <FormatConversionPanel sourceDocument={document} />
       </Box>
     );
   }
@@ -628,6 +716,7 @@ export default function InspectorPanel({
           />
         )}
         <JsonFgDetails info={document.jsonFg} />
+        <FormatConversionPanel sourceDocument={document} />
       </Box>
     );
   }
@@ -660,6 +749,7 @@ export default function InspectorPanel({
           onApply={onApplyRepair}
           onUndo={onUndoRepair}
         />
+        <FormatConversionPanel sourceDocument={document} />
       </Box>
     );
   }
@@ -692,6 +782,8 @@ export default function InspectorPanel({
           Source format: GeoJSON
         </Typography>
       )}
+
+      <FormatConversionPanel sourceDocument={document} />
 
       {selectedFeatureIndex !== null && (
       <SelectedFeatureDetails

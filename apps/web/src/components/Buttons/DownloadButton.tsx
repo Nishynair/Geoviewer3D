@@ -3,12 +3,13 @@ import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 
 interface DownloadButtonProps {
   text: string;
+  name: string;
 }
 
-export default function DownloadButton({ text }: DownloadButtonProps) {
+export default function DownloadButton({ text, name }: DownloadButtonProps) {
   const handleDownload = () => {
     // Prompt user for a filename
-    const filename = prompt("Enter file name:", "data.geojson");
+    const filename = prompt("Enter file name:", name);
     if (!filename) return;
 
     try {
@@ -34,7 +35,7 @@ export default function DownloadButton({ text }: DownloadButtonProps) {
   };
 
   return (
-    <Tooltip title='Download GeoJSON'>
+    <Tooltip title='Download current document'>
       <IconButton component="span" onClick={handleDownload}>
         <DownloadOutlinedIcon sx={{ color:"white" }}/>
       </IconButton>

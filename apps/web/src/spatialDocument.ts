@@ -3,6 +3,8 @@ import type { GeoJSON as GeoJsonValue } from 'geojson';
 import type { InspectionReport } from 'spatial-doctor';
 import {
   emptyJsonFgInfo,
+  hasExplicitJsonFgSignature,
+  hasGeoJsonFilename,
   hasJsonFgFilename,
   hasJsonFgSourceContext,
   inspectJsonFg,
@@ -139,7 +141,11 @@ export function createSpatialDocument(
     };
   }
 
-  if (hasJsonFgFilename(name) || isJsonFgCandidate(parsed)) {
+  if (
+    hasJsonFgFilename(name)
+    || hasExplicitJsonFgSignature(parsed)
+    || (!hasGeoJsonFilename(name) && isJsonFgCandidate(parsed))
+  ) {
     const adaptation = inspectJsonFg(parsed, inspectGeoJSON);
     if (adaptation.status === 'valid') {
       return {

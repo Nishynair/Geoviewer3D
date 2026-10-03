@@ -97,6 +97,12 @@ function hasJsonFgSpecificFeatureMember(value: unknown): boolean {
 
 export function isJsonFgCandidate(value: unknown): boolean {
   if (!isObject(value)) return false;
+  if (hasExplicitJsonFgSignature(value)) return true;
+  return hasJsonFgSpecificFeatureMember(value);
+}
+
+export function hasExplicitJsonFgSignature(value: unknown): boolean {
+  if (!isObject(value)) return false;
   const conformanceValues = Array.isArray(value.conformsTo)
     ? value.conformsTo
     : typeof value.conformsTo === 'string'
@@ -108,11 +114,15 @@ export function isJsonFgCandidate(value: unknown): boolean {
   if (profileLinks(value).some((uri) => uri === JSON_FG_PROFILE_URI || uri === JSON_FG_PLUS_PROFILE_URI)) {
     return true;
   }
-  return hasJsonFgSpecificFeatureMember(value);
+  return false;
 }
 
 export function hasJsonFgFilename(name: string): boolean {
   return /\.(?:jsonfg|json-fg)$/i.test(name);
+}
+
+export function hasGeoJsonFilename(name: string): boolean {
+  return /\.geojson$/i.test(name);
 }
 
 export function hasJsonFgSourceContext(name: string, rawText: string): boolean {

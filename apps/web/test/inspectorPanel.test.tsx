@@ -196,6 +196,35 @@ describe('InspectorPanel', () => {
     expect(markup).not.toContain('Coordinate tuples');
   });
 
+  it('shows a reviewable conversion account and downloadable output without replacing the source', () => {
+    const rawText = JSON.stringify({
+      type: 'Feature',
+      id: 'tower',
+      properties: { name: 'Tower' },
+      geometry: { type: 'Point', coordinates: [1, 2, 3] },
+    });
+    const document = createSpatialDocument('tower.geojson', rawText, inspectGeoJSON);
+    const markup = textContent(renderToStaticMarkup(<InspectorPanel document={document} />));
+
+    expect(markup).toContain('Format conversion');
+    expect(markup).toContain('Review GeoJSON → JSON-FG conversion');
+    expect(markup).toContain('Preserved');
+    expect(markup).toContain('Changed');
+    expect(markup).toContain('Approximated None.');
+    expect(markup).toContain('Lost None.');
+    expect(markup).toContain('Download converted file');
+    expect(document.source.rawText).toBe(rawText);
+  });
+
+  it('explains why a malformed source cannot be converted', () => {
+    const markup = textContent(renderDocument('{"type":', 'broken.geojson'));
+
+    expect(markup).toContain('Format conversion');
+    expect(markup).toContain('Conversion unavailable');
+    expect(markup).toContain('JSON syntax error prevents conversion');
+    expect(markup).not.toContain('Download converted file');
+  });
+
   it('renders the report’s XY counts, simple bounds, and missing-Z state', () => {
     const markup = textContent(renderDocument(JSON.stringify({
       type: 'FeatureCollection',

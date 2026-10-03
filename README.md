@@ -1,5 +1,5 @@
 # Geoviewer3D
-A browser-based spatial data inspector and 3D GeoJSON viewer. The V2 foundation keeps the existing editor and globe experience while introducing a deterministic, independently tested GeoJSON inspection package.
+A browser-based spatial data inspector and 3D GeoJSON viewer. It edits GeoJSON and supported JSON-FG, shows deterministic geometry and elevation summaries, and keeps repairs and format conversions explicit and reviewable.
 
 ## Live app
 ![Screenshot1](./apps/web/public/Geoviewer3D_screen1.jpg)
@@ -20,6 +20,8 @@ Then install dependencies and run the app or checks from the repository root:
     npm run build
 
 The default editor/viewer sample is under `apps/web/src/assets/`. The static GitHub Pages workflow reads `VITE_CESIUM_TOKEN` from a repository secret and publishes the production build.
+
+Phase 5 examples and the repair, inspection, and conversion walkthrough are in [docs/PHASE5_WORKFLOWS.md](./docs/PHASE5_WORKFLOWS.md).
 
 ## Project direction
 

@@ -24,6 +24,7 @@ import {
   indexFeaturesForViewer,
   isCurrentLoadedGeoJSON,
 } from '../utils/diagnosticNavigation';
+import { getOrbitRadius } from '../utils/viewerOrbit';
 
 interface Viewer3DProps {
   geojson: GeoJsonValue | null;
@@ -208,9 +209,10 @@ export default function Viewer3D({
         });
 
         const boundingSphere = Cesium.BoundingSphere.fromPoints(positions);
-        setRotationData({
+        const radius = getOrbitRadius(boundingSphere.radius);
+        setRotationData(radius === null ? null : {
           center: boundingSphere.center,
-          radius: boundingSphere.radius * 2.0,
+          radius,
         });
       } catch (error: unknown) {
         if (!cancelled) {

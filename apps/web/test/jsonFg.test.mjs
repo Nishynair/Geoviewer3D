@@ -240,6 +240,26 @@ test('does not classify an ordinary GeoJSON time member alone as JSON-FG', () =>
   assert.deepEqual(document.parsed, input);
 });
 
+test('honors a .geojson filename for weak JSON-FG-specific foreign members but recognizes an explicit Core signature', () => {
+  const foreignPlace = createSpatialDocument('foreign-place.geojson', JSON.stringify({
+    type: 'Feature',
+    place: { type: 'Point', coordinates: [10, 20] },
+    properties: {},
+    geometry: { type: 'Point', coordinates: [1, 2] },
+  }));
+  const explicitJsonFg = createSpatialDocument('misnamed.geojson', JSON.stringify({
+    type: 'Feature',
+    conformsTo: [CORE],
+    properties: {},
+    geometry: { type: 'Point', coordinates: [1, 2] },
+  }));
+
+  assert.equal(foreignPlace.format, 'geojson');
+  assert.equal(foreignPlace.report?.valid, true);
+  assert.equal(explicitJsonFg.format, 'jsonfg');
+  assert.equal(explicitJsonFg.report?.valid, true);
+});
+
 test('keeps malformed files with an explicit JSON-FG extension identified as JSON-FG', () => {
   const document = createSpatialDocument('broken.jsonfg', '{"type":');
 
