@@ -9,10 +9,10 @@
   ],
   "scripts": {
     "dev": "npm run dev --workspace @geoviewer3d/web --",
-    "test": "tsc -p apps/web/tsconfig.test.json && node --test apps/web/test/spatialDocument.test.mjs",
+    "test": "tsc -p apps/web/tsconfig.test.json && tsc -p packages/spatial-doctor/tsconfig.test.json && node --test apps/web/test/spatialDocument.test.mjs packages/spatial-doctor/test/inspectGeoJSON.test.mjs",
     "build": "npm run build --workspace @geoviewer3d/web --",
     "lint": "eslint .",
-    "typecheck": "npm run typecheck --workspace @geoviewer3d/web --",
+    "typecheck": "npm run typecheck --workspace @geoviewer3d/web -- && npm run typecheck --workspace spatial-doctor --",
     "preview": "npm run preview --workspace @geoviewer3d/web --"
   },
   "devDependencies": {

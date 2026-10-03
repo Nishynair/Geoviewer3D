@@ -82,6 +82,7 @@ out
 .nuxt
 dist
 apps/web/.test-dist/
+packages/spatial-doctor/.test-dist/
 
 # Gatsby files
 .cache/
