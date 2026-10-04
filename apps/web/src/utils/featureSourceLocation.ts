@@ -6,6 +6,7 @@ import {
   getGeoJSONFeature,
   type DiagnosticReference,
 } from './diagnosticNavigation';
+import { hasExplicitJsonFgSignature } from './jsonFg';
 
 interface JsonSourceNode {
   kind: 'object' | 'array' | 'string' | 'primitive';
@@ -245,7 +246,15 @@ export function findDiagnosticCoordinateSourceLocation(
   let rootValue: unknown;
   try {
     rootValue = JSON.parse(rawText);
-    if (geojson !== null && JSON.stringify(rootValue) !== JSON.stringify(geojson)) return null;
+    if (geojson !== null) {
+      const isJsonFgProjection = hasExplicitJsonFgSignature(rootValue);
+      if (!isJsonFgProjection && JSON.stringify(rootValue) !== JSON.stringify(geojson)) return null;
+      if (
+        !isJsonObject(rootValue)
+        || !isJsonObject(geojson)
+        || rootValue.type !== geojson.type
+      ) return null;
+    }
   } catch {
     return null;
   }
@@ -278,6 +287,15 @@ export function findDiagnosticCoordinateSourceLocation(
       return null;
     }
     if (diagnostic.featureId !== undefined && featureValue.id !== diagnostic.featureId) return null;
+    const projectedFeature = geojson === null
+      ? null
+      : getGeoJSONFeature(geojson, diagnostic.featureIndex);
+    if (
+      geojson !== null
+      && (!projectedFeature
+        || projectedFeature.id !== featureValue.id
+        || JSON.stringify(projectedFeature.geometry) !== JSON.stringify(featureValue.geometry))
+    ) return null;
     geometryValue = featureValue.geometry;
     geometryNode = featureNode.members?.get('geometry');
   } else if (diagnostic.featureId !== undefined) {
