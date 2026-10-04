@@ -1,5 +1,5 @@
 import type { GeoJSON as GeoJsonValue } from 'geojson';
-import type { InspectionReport } from 'spatial-doctor';
+import type { InspectionReport } from '@nish-andran/spatial-doctor';
 
 export const JSON_FG_CORE_URI = 'http://www.opengis.net/spec/json-fg-1/1.0/conf/core';
 export const JSON_FG_CONFORMANCE_PREFIX = 'http://www.opengis.net/spec/json-fg-1/1.0/conf/';

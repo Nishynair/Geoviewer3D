@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import {
+  findDiagnosticCoordinateSourceLocation,
   findFeatureSourceLocation,
   resolveDiagnosticSourceLocation,
 } from '../src/utils/featureSourceLocation.ts';
+import { createSpatialDocument } from '../src/spatialDocument.ts';
+import { inspectGeoJSON } from '@nish-andran/spatial-doctor';
 
 test('maps an idless FeatureCollection member through nested JSON and escaped strings', () => {
   const rawText = `{
@@ -73,4 +76,95 @@ test('diagnostic source actions share the valid explicit range or structural fea
     featureIndex: 0,
     sourceLocation: { start: 2, end: 12 },
   }), { start: 2, end: 12 });
+});
+
+test('maps a coordinate path through nested GeometryCollections to the exact tuple source', () => {
+  const rawText = `{
+  "type": "FeatureCollection",
+  "features": [{
+    "type": "Feature",
+    "id": "unsafe",
+    "properties": {},
+    "geometry": {
+      "type": "GeometryCollection",
+      "geometries": [{
+        "type": "GeometryCollection",
+        "geometries": [
+          { "type": "Point", "coordinates": [1, 2] },
+          { "type": "Point", "coordinates": [181, 2] }
+        ]
+      }]
+    }
+  }]
+}`;
+  const parsed = JSON.parse(rawText);
+  const diagnostic = {
+    featureIndex: 0,
+    featureId: 'unsafe',
+    coordinatePath: [0, 1],
+  };
+
+  const location = findDiagnosticCoordinateSourceLocation(rawText, parsed, diagnostic);
+
+  assert.notEqual(location, null);
+  assert.equal(rawText.slice(location.start, location.end), '[181, 2]');
+  assert.deepEqual(resolveDiagnosticSourceLocation(rawText, parsed, diagnostic), location);
+  assert.deepEqual(resolveDiagnosticSourceLocation(rawText, parsed, {
+    ...diagnostic,
+    sourceLocation: { start: 0, end: 5 },
+  }), location);
+  assert.equal(resolveDiagnosticSourceLocation(rawText, parsed, {
+    ...diagnostic,
+    coordinatePath: [0, 99],
+    sourceLocation: { start: 0, end: 5 },
+  }), null);
+});
+
+test('maps a root GeometryCollection coordinate path without inventing a Feature', () => {
+  const rawText = '{"type":"GeometryCollection","geometries":[{"type":"Point","coordinates":[181,2]}]}';
+  const location = resolveDiagnosticSourceLocation(rawText, null, {
+    coordinatePath: [0],
+  });
+
+  assert.notEqual(location, null);
+  assert.equal(rawText.slice(location.start, location.end), '[181,2]');
+});
+
+test('maps projected JSON-FG diagnostics through the source Feature geometry and rejects stale geometry', () => {
+  const rawText = JSON.stringify({
+    type: 'FeatureCollection',
+    conformsTo: ['http://www.opengis.net/spec/json-fg-1/1.0/conf/core'],
+    features: [{
+      type: 'Feature',
+      id: 'ranged',
+      properties: { name: 'Ranged line' },
+      time: { interval: ['2020-01-01T00:00:00Z', '2020-01-02T00:00:00Z'] },
+      place: { type: 'Point', coordinates: [77, 88] },
+      geometry: { type: 'LineString', coordinates: [[10, 20], [181, 2]] },
+    }],
+  }, null, 2);
+  const document = createSpatialDocument('ranged.jsonfg', rawText, inspectGeoJSON);
+  const diagnostic = document.report?.diagnostics.find(
+    ({ code }) => code === 'coordinate-out-of-range',
+  );
+
+  assert.equal(document.format, 'jsonfg');
+  assert.equal(document.report?.valid, true);
+  assert.equal(document.parsed?.type, 'FeatureCollection');
+  assert.equal(document.parsed?.features[0]?.time, undefined);
+  assert.equal(document.parsed?.features[0]?.place, undefined);
+  assert.ok(rawText.includes('"time"'));
+  assert.ok(rawText.includes('"place"'));
+  assert.notEqual(diagnostic, undefined);
+
+  const location = findDiagnosticCoordinateSourceLocation(rawText, document.parsed, diagnostic);
+  assert.notEqual(location, null);
+  assert.deepEqual(JSON.parse(rawText.slice(location.start, location.end)), [181, 2]);
+  assert.equal(findDiagnosticCoordinateSourceLocation(rawText, {
+    ...document.parsed,
+    features: [{
+      ...document.parsed.features[0],
+      geometry: { type: 'LineString', coordinates: [[10, 20], [180, 2]] },
+    }],
+  }, diagnostic), null);
 });

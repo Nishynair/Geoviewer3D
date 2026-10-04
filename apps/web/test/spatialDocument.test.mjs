@@ -5,7 +5,7 @@ import {
   getGeoJSONForViewer,
 } from '../src/spatialDocument.ts';
 import { addAndFlyToIfCurrent } from '../src/utils/addViewerDataSource.ts';
-import { inspectGeoJSON } from 'spatial-doctor';
+import { inspectGeoJSON } from '@nish-andran/spatial-doctor';
 
 function createSpatialDocument(name, rawText, inspect = inspectGeoJSON) {
   return createSpatialDocumentImpl(name, rawText, inspect);
@@ -26,6 +26,44 @@ test('valid GeoJSON becomes the canonical parsed document and reaches the viewer
   assert.equal(document.parseError, null);
   assert.deepEqual(document.report, inspectGeoJSON(document.parsed));
   assert.deepEqual(getGeoJSONForViewer(document), document.parsed);
+});
+
+test('keeps valid features viewable while removing out-of-range coordinates from Cesium input', () => {
+  const rawText = JSON.stringify({
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'Point', coordinates: [181, 2] },
+      },
+      {
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'Point', coordinates: [10, 20] },
+      },
+    ],
+  });
+  const document = createSpatialDocument('range.geojson', rawText);
+  const viewerValue = getGeoJSONForViewer(document);
+
+  assert.equal(document.report?.valid, true);
+  assert.equal(document.report?.diagnostics[0]?.code, 'coordinate-out-of-range');
+  assert.notEqual(viewerValue, null);
+  assert.equal(viewerValue.features[0].geometry, null);
+  assert.deepEqual(viewerValue.features[1].geometry, document.parsed.features[1].geometry);
+  assert.deepEqual(document.parsed.features[0].geometry.coordinates, [181, 2]);
+});
+
+test('does not pass unlocatable out-of-range geometry to Cesium', () => {
+  const document = createSpatialDocument(
+    'range.geojson',
+    JSON.stringify({ type: 'Point', coordinates: [181, 2] }),
+  );
+
+  assert.equal(document.report?.valid, true);
+  assert.equal(document.report?.diagnostics[0]?.code, 'coordinate-out-of-range');
+  assert.equal(getGeoJSONForViewer(document), null);
 });
 
 test('valid canonical documents preserve optional feature and source references in the report', () => {
@@ -124,7 +162,13 @@ test('parseable non-GeoJSON is distinct from a JSON syntax error and is blocked 
   assert.equal(document.source.rawText, rawText);
   assert.equal(document.parseError?.kind, 'invalid-geojson');
   assert.equal(document.report?.valid, false);
-  assert.deepEqual(document.report, inspectGeoJSON(JSON.parse(rawText)));
+  assert.deepEqual(document.report?.summary, null);
+  assert.deepEqual(document.report?.coordinates, null);
+  assert.equal(document.report?.diagnostics[0]?.code, 'invalid-geojson');
+  const sourceLocation = document.report?.diagnostics[0]?.sourceLocation;
+  assert.notEqual(sourceLocation, undefined);
+  assert.ok(sourceLocation.end <= rawText.length);
+  assert.equal(JSON.parse(rawText.slice(sourceLocation.start, sourceLocation.end)).notGeoJSON, true);
   assert.equal(document.parsed, null);
   assert.equal(getGeoJSONForViewer(document), null);
 });
@@ -187,6 +231,33 @@ test('a stale data-source add completes without starting a viewer flight', async
   assert.equal(await operation, false);
   assert.equal(flightStarted, false);
   assert.deepEqual(removedSources, [source]);
+});
+
+test('publishes an added data source before waiting for its camera flight', async () => {
+  let resolveFlight;
+  let presentationReady = false;
+  let flightStarted = false;
+  const pendingFlight = new Promise((resolve) => {
+    resolveFlight = resolve;
+  });
+  const source = { id: 'ready-before-flight-source' };
+
+  const operation = addAndFlyToIfCurrent(source, {
+    add: async () => undefined,
+    remove: () => undefined,
+    flyTo: () => {
+      flightStarted = true;
+      return pendingFlight;
+    },
+  }, () => true, () => {
+    presentationReady = true;
+  });
+
+  await Promise.resolve();
+  assert.equal(presentationReady, true);
+  assert.equal(flightStarted, true);
+  resolveFlight();
+  assert.equal(await operation, true);
 });
 
 test('a cancelled viewer flight removes its data source when it settles', async () => {

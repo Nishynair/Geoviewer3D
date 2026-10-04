@@ -6,6 +6,7 @@ import {
   getGeoJSONFeature,
   type DiagnosticReference,
 } from './diagnosticNavigation';
+import { hasExplicitJsonFgSignature } from './jsonFg';
 
 interface JsonSourceNode {
   kind: 'object' | 'array' | 'string' | 'primitive';
@@ -14,6 +15,8 @@ interface JsonSourceNode {
   members?: Map<string, JsonSourceNode>;
   items?: JsonSourceNode[];
 }
+
+type JsonObject = Record<string, unknown>;
 
 class JsonSourceScanner {
   private offset = 0;
@@ -172,6 +175,142 @@ export function findFeatureSourceLocation(
   return { start: sourceNode.start, end: sourceNode.end };
 }
 
+function isJsonObject(value: unknown): value is JsonObject {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isCoordinateTuple(value: unknown): value is number[] {
+  return Array.isArray(value)
+    && value.length >= 2
+    && value.every((ordinate) => typeof ordinate === 'number' && Number.isFinite(ordinate));
+}
+
+function findCoordinateNode(
+  geometry: unknown,
+  geometryNode: JsonSourceNode | undefined,
+  coordinatePath: number[],
+): JsonSourceNode | null {
+  if (!isJsonObject(geometry) || geometryNode?.kind !== 'object') return null;
+
+  if (geometry.type === 'GeometryCollection') {
+    const childIndex = coordinatePath[0];
+    const children = geometry.geometries;
+    const childrenNode = geometryNode.members?.get('geometries');
+    if (
+      childIndex === undefined
+      || !Number.isSafeInteger(childIndex)
+      || childIndex < 0
+      || !Array.isArray(children)
+      || childrenNode?.kind !== 'array'
+    ) return null;
+
+    const child = children[childIndex];
+    const childNode = childrenNode.items?.[childIndex];
+    return child === undefined
+      ? null
+      : findCoordinateNode(child, childNode, coordinatePath.slice(1));
+  }
+
+  const coordinates = geometry.coordinates;
+  let coordinateNode = geometryNode.members?.get('coordinates');
+  if (!Array.isArray(coordinates) || coordinateNode?.kind !== 'array') return null;
+
+  let value: unknown = coordinates;
+  for (const index of coordinatePath) {
+    if (
+      !Number.isSafeInteger(index)
+      || index < 0
+      || !Array.isArray(value)
+      || coordinateNode.kind !== 'array'
+    ) return null;
+    value = value[index];
+    coordinateNode = coordinateNode.items?.[index];
+    if (value === undefined || coordinateNode === undefined) return null;
+  }
+
+  return isCoordinateTuple(value) && coordinateNode?.kind === 'array'
+    ? coordinateNode
+    : null;
+}
+
+export function findDiagnosticCoordinateSourceLocation(
+  rawText: string,
+  geojson: GeoJSONValue | null,
+  diagnostic: DiagnosticReference,
+): SourceTextLocation | null {
+  if (!Array.isArray(diagnostic.coordinatePath)) return null;
+
+  const rootNode = new JsonSourceScanner(rawText).parse();
+  if (!rootNode) return null;
+
+  let rootValue: unknown;
+  try {
+    rootValue = JSON.parse(rawText);
+    if (geojson !== null) {
+      const isJsonFgProjection = hasExplicitJsonFgSignature(rootValue);
+      if (!isJsonFgProjection && JSON.stringify(rootValue) !== JSON.stringify(geojson)) return null;
+      if (
+        !isJsonObject(rootValue)
+        || !isJsonObject(geojson)
+        || rootValue.type !== geojson.type
+      ) return null;
+    }
+  } catch {
+    return null;
+  }
+
+  let geometryValue: unknown = rootValue;
+  let geometryNode: JsonSourceNode | undefined = rootNode;
+
+  if (diagnostic.featureIndex !== undefined) {
+    if (!Number.isSafeInteger(diagnostic.featureIndex) || diagnostic.featureIndex < 0) return null;
+    let featureValue: unknown;
+    let featureNode: JsonSourceNode | undefined;
+    if (isJsonObject(rootValue) && rootValue.type === 'FeatureCollection') {
+      const features = rootValue.features;
+      const featuresNode = rootNode.members?.get('features');
+      if (!Array.isArray(features) || featuresNode?.kind !== 'array') return null;
+      featureValue = features[diagnostic.featureIndex];
+      featureNode = featuresNode.items?.[diagnostic.featureIndex];
+    } else if (
+      isJsonObject(rootValue)
+      && rootValue.type === 'Feature'
+      && diagnostic.featureIndex === 0
+    ) {
+      featureValue = rootValue;
+      featureNode = rootNode;
+    } else {
+      return null;
+    }
+
+    if (!isJsonObject(featureValue) || featureValue.type !== 'Feature' || featureNode?.kind !== 'object') {
+      return null;
+    }
+    if (diagnostic.featureId !== undefined && featureValue.id !== diagnostic.featureId) return null;
+    const projectedFeature = geojson === null
+      ? null
+      : getGeoJSONFeature(geojson, diagnostic.featureIndex);
+    if (
+      geojson !== null
+      && (!projectedFeature
+        || projectedFeature.id !== featureValue.id
+        || JSON.stringify(projectedFeature.geometry) !== JSON.stringify(featureValue.geometry))
+    ) return null;
+    geometryValue = featureValue.geometry;
+    geometryNode = featureNode.members?.get('geometry');
+  } else if (diagnostic.featureId !== undefined) {
+    return null;
+  }
+
+  const coordinateNode = findCoordinateNode(
+    geometryValue,
+    geometryNode,
+    diagnostic.coordinatePath,
+  );
+  if (!coordinateNode || coordinateNode.start < 0 || coordinateNode.end > rawText.length) return null;
+  return { start: coordinateNode.start, end: coordinateNode.end };
+}
+
 export function resolveMapFeatureSelection(
   rawText: string,
   geojson: GeoJSONValue | null,
@@ -190,6 +329,10 @@ export function resolveDiagnosticSourceLocation(
   geojson: GeoJSONValue | null,
   diagnostic: DiagnosticReference,
 ): SourceTextLocation | null {
+  if (Array.isArray(diagnostic.coordinatePath)) {
+    return findDiagnosticCoordinateSourceLocation(rawText, geojson, diagnostic);
+  }
+
   if (hasDiagnosticSourceLocation(diagnostic, rawText.length)) {
     return diagnostic.sourceLocation!;
   }

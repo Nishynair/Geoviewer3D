@@ -1,11 +1,114 @@
-# spatial-doctor
+# @nish-andran/spatial-doctor
+
+`@nish-andran/spatial-doctor` is a framework-independent GeoJSON inspector and
+geometry measurement library. It provides two runtime functions,
+`inspectGeoJSON(input)` and `measureGeoJSONGeometry(input)`, with TypeScript
+declarations for their result types. It does not depend on a UI or viewer.
+Import it as an ECMAScript module in Node.js 20 or later, or through a modern
+browser bundler.
 
 `inspectGeoJSON(input)` accepts an already-parsed JavaScript value. It does not
 parse editor or file text. A valid report contains `valid: true`, a `summary`,
-and a diagnostics array. An invalid report contains `valid: false`,
-`summary: null`, and stable diagnostics. The current inspector emits no
-diagnostics for valid GeoJSON and only a dataset-wide validation diagnostic for
-invalid GeoJSON.
+`coordinates` summary, and a diagnostics array. An invalid report contains
+`valid: false`, `summary: null`, `coordinates: null`, and stable diagnostics.
+An invalid report may include an open-ring finding with a feature or coordinate
+reference when that ring's coordinate tuples can be read safely. Such a finding
+does not make the document valid or viewer-eligible.
+
+## Install
+
+```sh
+npm install @nish-andran/spatial-doctor
+```
+
+## JavaScript example
+
+Save as `example.mjs` and run with `node example.mjs`:
+
+```js
+import assert from 'node:assert/strict';
+import {
+  inspectGeoJSON,
+  measureGeoJSONGeometry,
+} from '@nish-andran/spatial-doctor';
+
+const line = {
+  type: 'LineString',
+  coordinates: [
+    [103.8198, 1.3521, 15.2],
+    [103.8208, 1.3531, 15.8],
+  ],
+};
+const document = {
+  type: 'FeatureCollection',
+  features: [
+    { type: 'Feature', properties: { name: 'Example' }, geometry: line },
+  ],
+};
+
+const report = inspectGeoJSON(document);
+assert.equal(report.valid, true);
+if (!report.valid) throw new Error('Expected this GeoJSON to be valid.');
+assert.deepEqual(report.coordinates.zRange, { min: 15.2, max: 15.8 });
+assert.deepEqual(inspectGeoJSON(document), report);
+
+const measurements = measureGeoJSONGeometry(line);
+assert.ok(measurements);
+assert.equal(measurements.geometryType, 'LineString');
+assert.equal(measurements.coordinateCount, 2);
+assert.ok(measurements.horizontalLength.meters !== null);
+assert.ok(measurements.threeDimensionalLength.meters !== null);
+
+console.log({ report, measurements });
+```
+
+## TypeScript example
+
+The package includes declarations for the report, diagnostics, coordinate
+summary, and measurement result. Save as `example.ts` in a TypeScript project
+using Node's `NodeNext` module resolution:
+
+```ts
+import {
+  inspectGeoJSON,
+  measureGeoJSONGeometry,
+} from '@nish-andran/spatial-doctor';
+import type {
+  Diagnostic,
+  GeometryMeasurementSummary,
+  InspectionReport,
+} from '@nish-andran/spatial-doctor';
+
+const line = {
+  type: 'LineString',
+  coordinates: [
+    [103.8198, 1.3521, 15.2],
+    [103.8208, 1.3531, 15.8],
+  ],
+};
+const document: unknown = {
+  type: 'FeatureCollection',
+  features: [
+    { type: 'Feature', properties: { name: 'Example' }, geometry: line },
+  ],
+};
+
+const report: InspectionReport = inspectGeoJSON(document);
+const diagnostics: Diagnostic[] = report.diagnostics;
+const measurements: GeometryMeasurementSummary | null =
+  measureGeoJSONGeometry(line);
+
+if (report.valid) {
+  console.log(report.coordinates.zRange);
+}
+console.log(diagnostics.length, measurements?.horizontalLength.meters);
+```
+
+The API is deterministic for the same input value. `inspectGeoJSON` describes
+the input's structure and coordinate checks; its `valid` flag indicates whether
+the GeoJSON structure validator accepted the input. Invalid reports keep the
+summary and coordinate summary unavailable. The selected-geometry function
+returns `null` for invalid input or a Feature/FeatureCollection root.
 
 ## Feature and geometry counts
 
@@ -64,10 +167,46 @@ range, its measurement is unavailable instead of returning `Infinity` or
 
 ## Diagnostic navigation references
 
-Diagnostics may carry a `featureId`, a zero-based `featureIndex` into a
-FeatureCollection (or index `0` for a root Feature), and a `sourceLocation`.
-The source location is a half-open range of zero-based UTF-16 offsets into the
-original text. Feature IDs are used only when they identify exactly one
-feature; the index can identify a feature without an ID. A bare Geometry has no
-feature to reference. The current inspector emits dataset-wide validation
-diagnostics only, so it does not offer geometry navigation for those rows.
+`inspectGeoJSON` analyzes an already-parsed value and does not receive the
+original source text, so it does not emit source offsets. Its diagnostics may
+carry a `featureId`, a zero-based `featureIndex` into a FeatureCollection (or
+index `0` for a root Feature), and a `coordinatePath` through geometry
+coordinate arrays and nested `GeometryCollection.geometries` arrays. A bare
+Geometry has no Feature to reference. The exported `Diagnostic` type includes
+an optional `sourceLocation` field for consumers that resolve a diagnostic
+against their own source text; when present, it is a half-open range of
+zero-based UTF-16 offsets into that text.
+
+The supported diagnostic codes are:
+
+`invalid-geojson` describes structural validation. The remaining five codes
+below are the complete set of coordinate-quality checks.
+
+- `invalid-geojson` (`error`): the GeoJSON structure validator rejected the
+  document. Coordinates and summary are unavailable. This remains the viewer
+  eligibility gate.
+- `duplicate-consecutive-position` (`warning`): one coordinate tuple exactly
+  repeats the full preceding tuple, including Z and any additional ordinates.
+- `mixed-coordinate-dimensions` (`warning`): the document contains both XY and
+  XYZ coordinate tuples; one finding points to the first position with the
+  dimension that differs from the first tuple.
+- `coordinate-out-of-range` (`error`): a finite longitude falls outside
+  `[-180, 180]` or latitude outside `[-90, 90]`. The app omits the affected
+  feature geometry from the globe.
+- `unclosed-polygon-ring` (`error`): a ring's final tuple does not exactly
+  match its first tuple. When structural validation fails, the inspector emits
+  this finding only if the ring is an array of finite numeric tuples; its path
+  points to the final supplied tuple. Invalid geometry remains ineligible for
+  rendering.
+- `excess-coordinate-precision` (`warning`): one finding per coordinate tuple
+  when any finite ordinate has more than **15 significant decimal digits** in
+  its shortest JavaScript `Number.prototype.toString()` representation. This
+  threshold is a deterministic representation heuristic. JSON parsing may
+  already discard differences in the original number text; the check cannot
+  recover those digits or establish that the represented value is accurate or
+  needs that many digits.
+
+Finding counts include every emitted diagnostic, including each repeated tuple,
+out-of-range tuple, safely readable open ring, and high-precision coordinate
+tuple. They are counts of findings, not a completeness score. The inspector
+does not test topology or every aspect of spatial quality.

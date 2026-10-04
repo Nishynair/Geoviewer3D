@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import { BoundingSphere, Cartesian3 } from 'cesium';
-import { inspectGeoJSON } from 'spatial-doctor';
+import { inspectGeoJSON } from '@nish-andran/spatial-doctor';
 import { getOrbitRadius } from '../src/utils/viewerOrbit.ts';
 
 test('does not schedule orbit ticks for a valid single Point with a zero-radius bound', () => {

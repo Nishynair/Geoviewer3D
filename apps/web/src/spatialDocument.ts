@@ -1,6 +1,6 @@
 import { check, HintError, type HintIssue } from '@placemarkio/check-geojson';
 import type { GeoJSON as GeoJsonValue } from 'geojson';
-import type { InspectionReport } from 'spatial-doctor';
+import type { InspectionReport } from '@nish-andran/spatial-doctor';
 import {
   emptyJsonFgInfo,
   hasExplicitJsonFgSignature,
@@ -104,6 +104,29 @@ function getSourceIssues(rawText: string): HintIssue[] {
   }
 }
 
+function withSourceIssueLocations(
+  report: InvalidInspectionReport,
+  issues: HintIssue[],
+  sourceLength: number,
+): InvalidInspectionReport {
+  return {
+    ...report,
+    diagnostics: report.diagnostics.map((diagnostic, index) => {
+      const issue = issues[index];
+      const start = issue?.from;
+      const end = issue?.to;
+      if (
+        !Number.isSafeInteger(start)
+        || !Number.isSafeInteger(end)
+        || start! < 0
+        || end! < start!
+        || end! > sourceLength
+      ) return diagnostic;
+      return { ...diagnostic, sourceLocation: { start: start!, end: end! } };
+    }),
+  };
+}
+
 function syntaxErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Invalid JSON.';
 }
@@ -186,20 +209,66 @@ export function createSpatialDocument(
   }
 
   const issues = getSourceIssues(rawText);
+  const reportWithSourceLocations = withSourceIssueLocations(report, issues, rawText.length);
   return {
     source,
     format: 'geojson',
     parsed: null,
     parseError: {
       kind: 'invalid-geojson',
-      message: report.diagnostics[0]?.message ?? 'Invalid GeoJSON.',
+      message: reportWithSourceLocations.diagnostics[0]?.message ?? 'Invalid GeoJSON.',
       issues,
     },
-    report,
+    report: reportWithSourceLocations,
   };
 }
 
 export function getGeoJSONForViewer(document: SpatialDocument): GeoJsonValue | null {
-  if (document.report?.valid !== true) return null;
-  return document.parsed;
+  const parsed = document.parsed;
+  if (document.report?.valid !== true || parsed === null) return null;
+
+  const unsafeFeatureIndexes = new Set<number>();
+  for (const diagnostic of document.report.diagnostics) {
+    if (diagnostic.code !== 'coordinate-out-of-range') continue;
+    if (diagnostic.featureIndex === undefined) return null;
+
+    let feature: unknown;
+    if (parsed.type === 'FeatureCollection') {
+      if (
+        !Number.isSafeInteger(diagnostic.featureIndex)
+        || diagnostic.featureIndex < 0
+        || diagnostic.featureIndex >= parsed.features.length
+      ) return null;
+      feature = parsed.features[diagnostic.featureIndex];
+    } else if (parsed.type === 'Feature' && diagnostic.featureIndex === 0) {
+      feature = parsed;
+    } else {
+      return null;
+    }
+
+    if (
+      typeof feature !== 'object'
+      || feature === null
+      || !('type' in feature)
+      || feature.type !== 'Feature'
+      || ('id' in feature && diagnostic.featureId !== undefined && feature.id !== diagnostic.featureId)
+    ) return null;
+    unsafeFeatureIndexes.add(diagnostic.featureIndex);
+  }
+
+  if (unsafeFeatureIndexes.size === 0) return parsed;
+  if (parsed.type === 'FeatureCollection') {
+    const viewerValue = JSON.parse(JSON.stringify(parsed)) as GeoJsonValue;
+    if (viewerValue.type !== 'FeatureCollection') return null;
+    viewerValue.features.forEach((feature, index) => {
+      if (unsafeFeatureIndexes.has(index)) {
+        viewerValue.features[index] = { ...feature, geometry: null } as unknown as typeof feature;
+      }
+    });
+    return viewerValue;
+  }
+  if (parsed.type === 'Feature' && unsafeFeatureIndexes.has(0)) {
+    return { ...parsed, geometry: null } as unknown as GeoJsonValue;
+  }
+  return null;
 }

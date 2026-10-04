@@ -20,7 +20,7 @@
     "@turf/center": "^7.2.0",
     "@turf/invariant": "^7.2.0",
     "3d-tiles-renderer": "^0.4.14",
-    "spatial-doctor": "0.0.0",
+    "@nish-andran/spatial-doctor": "1.0.0",
     "cesium": "^1.132.0",
     "proj4": "^2.19.10",
     "react": "^19.1.1",

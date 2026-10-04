@@ -1,27 +1,34 @@
 import './App.css'
 import { useEffect, useRef, useState } from 'react';
+import type { ChangeEvent, DragEvent as ReactDragEvent } from 'react';
 import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
 import { useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { TEXT_BOX_MIN_WIDTH, TEXT_BOX_MAX_WIDTH } from './consts';
 import GeojsonEditor from './components/GeojsonEditor';
-import KlccFlat from './assets/sampleJSON/klcc-flat.json';
 import Viewer3D from './components/Viewer';
 import MenuBar from './components/MenuBar';
 import MinimizeMaximizeButton from './components/Buttons/MinimizeMaximizeButton';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
-import { inspectGeoJSON, measureGeoJSONGeometry } from 'spatial-doctor';
-import type { Diagnostic } from 'spatial-doctor';
+import { inspectGeoJSON, measureGeoJSONGeometry } from '@nish-andran/spatial-doctor';
+import type { Diagnostic } from '@nish-andran/spatial-doctor';
 import type { GeoJSON as GeoJsonValue } from 'geojson';
 import InspectorPanel from './components/InspectorPanel';
+import StartingExperience from './components/StartingExperience';
+import SnackbarAlert from './components/SnackbarAlert';
+import {
+  createLocalFileLoadGuard,
+  SPATIAL_FILE_ACCEPT,
+  type LocalSpatialFileCallbacks,
+} from './utils/localFileLoading';
 import {
   createSpatialDocument,
   getGeoJSONForViewer,
   type SpatialDocument,
 } from './spatialDocument';
-import { getGeoJSONFeature, resolveDiagnosticFeatureIndex } from './utils/diagnosticNavigation';
-import { resolveDiagnosticSourceLocation } from './utils/featureSourceLocation';
+import { getGeoJSONFeature } from './utils/diagnosticNavigation';
 import {
   createFeatureSelectionController,
   type WorkspaceSelection,
@@ -39,6 +46,8 @@ import {
   type GeoJSONRepairPreview,
 } from './utils/geoJsonRepairs';
 import { createEditorTextChangeHandler } from './utils/editorChangeGuard';
+import { resolveMapFeatureSelection } from './utils/featureSourceLocation';
+import { CLEAN_STARTER_DEMO, type CuratedDemo } from './curatedExamples';
 
 interface TerrainComparisonDisplay {
   geojson: GeoJsonValue;
@@ -48,17 +57,30 @@ interface TerrainComparisonDisplay {
 
 function App() {
   const [document, setDocument] = useState<SpatialDocument>(() =>
-    createSpatialDocument('klcc-flat.json', JSON.stringify(KlccFlat, null, 2), inspectGeoJSON),
+    createSpatialDocument(CLEAN_STARTER_DEMO.fileName, CLEAN_STARTER_DEMO.rawText, inspectGeoJSON),
   );
   const [viewerDocument, setViewerDocument] = useState(document);
   const [selection, setSelection] = useState<WorkspaceSelection | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const selectionSequence = useRef(0);
   const theme = useTheme();
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'));
   const [expanded, setExpanded] = useState(false);
-  const [rightPanel, setRightPanel] = useState<'editor' | 'inspector'>('editor');
+  const [rightPanel, setRightPanel] = useState<'editor' | 'inspector'>('inspector');
+  const [hasStartedWorkspace, setHasStartedWorkspace] = useState(false);
+  const [isReadingFile, setIsReadingFile] = useState(false);
+  const [fileReadError, setFileReadError] = useState<string | null>(null);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const localFileLoadGuardRef = useRef(createLocalFileLoadGuard());
   const [terrainRequest, setTerrainRequest] = useState<TerrainComparisonRequest | null>(null);
   const [terrainResult, setTerrainResult] = useState<TerrainComparisonDisplay | null>(null);
+  const [viewerPresentationRequest, setViewerPresentationRequest] = useState<{
+    requestId: number;
+    autoRotate: boolean;
+    colorByElevation: boolean;
+    verticalExaggeration: number;
+  } | null>(() => ({ requestId: 0, ...CLEAN_STARTER_DEMO.presentation }));
+  const viewerPresentationSequence = useRef(0);
   const [repairPreview, setRepairPreview] = useState<GeoJSONRepairPreview | null>(null);
   const [appliedRepair, setAppliedRepair] = useState<AppliedGeoJSONRepair | null>(null);
   const currentSourceTextRef = useRef(document.source.rawText);
@@ -75,21 +97,7 @@ function App() {
   });
 
   const handleSelectDiagnostic = (diagnostic: Diagnostic) => {
-    selectionSequence.current += 1;
-    const featureIndex = resolveDiagnosticFeatureIndex(document.parsed, diagnostic);
-    const sourceLocation = resolveDiagnosticSourceLocation(
-      document.source.rawText,
-      document.parsed,
-      diagnostic,
-    );
-    setSelection({
-      document,
-      featureIndex,
-      diagnostic,
-      sourceLocation,
-      requestId: selectionSequence.current,
-    });
-    if (sourceLocation) setRightPanel('editor');
+    featureSelectionController.selectDiagnostic(diagnostic);
   };
 
   const handleFeatureSelect = (featureIndex: number) => {
@@ -168,6 +176,8 @@ function App() {
   const handleTextChange = createEditorTextChangeHandler(
     () => currentSourceTextRef.current,
     (rawText) => {
+      invalidatePendingFileRead();
+      setHasStartedWorkspace(true);
       // The separate Monaco subscription also receives @monaco-editor/react's
       // controlled executeEdits update after Apply/Undo. Ignore that echo so it
       // cannot discard the undo snapshot for a repair.
@@ -179,10 +189,108 @@ function App() {
     },
   );
 
+  const invalidatePendingFileRead = () => {
+    localFileLoadGuardRef.current.invalidate();
+    setIsReadingFile(false);
+    setFileReadError(null);
+  };
+
   const handleFileLoad = (name: string, rawText: string) => {
+    invalidatePendingFileRead();
+    setHasStartedWorkspace(true);
+    setSelection(null);
+    setRightPanel('inspector');
     setRepairPreview(null);
     setAppliedRepair(null);
-    setDocument(createSpatialDocument(name, rawText, inspectGeoJSON));
+    const nextDocument = createSpatialDocument(name, rawText, inspectGeoJSON);
+    setDocument(nextDocument);
+    return nextDocument;
+  };
+
+  const handleDemoLoad = (demo: CuratedDemo) => {
+    const demoDocument = handleFileLoad(demo.fileName, demo.rawText);
+    if (
+      demoDocument.parsed !== null
+      && demoDocument.report?.valid === true
+      && demo.initialFeatureIndex !== null
+    ) {
+      const resolved = resolveMapFeatureSelection(
+        demoDocument.source.rawText,
+        demoDocument.parsed,
+        demo.initialFeatureIndex,
+      );
+      if (resolved) {
+        selectionSequence.current += 1;
+        setSelection({
+          document: demoDocument,
+          featureIndex: resolved.featureIndex,
+          diagnostic: null,
+          sourceLocation: resolved.sourceLocation,
+          requestId: selectionSequence.current,
+        });
+      }
+    }
+    viewerPresentationSequence.current += 1;
+    setViewerPresentationRequest({
+      requestId: viewerPresentationSequence.current,
+      ...demo.presentation,
+    });
+  };
+
+  const handleLocalFileLoad = (name: string, rawText: string) => {
+    setIsReadingFile(false);
+    setFileReadError(null);
+    setSelection(null);
+    setRightPanel('inspector');
+    handleFileLoad(name, rawText);
+  };
+
+  const fileCallbacks: LocalSpatialFileCallbacks = {
+    onReading: () => {
+      setIsReadingFile(true);
+      setFileReadError(null);
+    },
+    onFileLoad: handleLocalFileLoad,
+    onUnsupportedFile: (fileName) => {
+      setIsReadingFile(false);
+      setFileReadError(`“${fileName}” is not a supported spatial file. Choose or drop a .geojson, .json, .jsonfg, or .json-fg file.`);
+    },
+    onReadError: (fileName) => {
+      setIsReadingFile(false);
+      setFileReadError(`Could not read “${fileName}”. Choose another file.`);
+    },
+  };
+
+  const handleLocalFileSelected = (file: File) => {
+    void localFileLoadGuardRef.current.load(file, fileCallbacks);
+  };
+
+  const handleFileInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = '';
+    if (file) handleLocalFileSelected(file);
+  };
+
+  const openFilePicker = () => fileInputRef.current?.click();
+
+  const handleFileDragOver = (event: ReactDragEvent<HTMLDivElement>) => {
+    if (!Array.from(event.dataTransfer.types).includes('Files')) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    setIsDraggingFile(true);
+  };
+
+  const handleFileDragLeave = (event: ReactDragEvent<HTMLDivElement>) => {
+    if (!Array.from(event.dataTransfer.types).includes('Files')) return;
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+    setIsDraggingFile(false);
+  };
+
+  const handleFileDrop = (event: ReactDragEvent<HTMLDivElement>) => {
+    setIsDraggingFile(false);
+    void localFileLoadGuardRef.current.drop(event.nativeEvent, fileCallbacks);
   };
 
   const handlePreviewRepair = (kind: GeoJSONRepairKind) => {
@@ -191,6 +299,7 @@ function App() {
 
   const handleApplyRepair = () => {
     if (!repairPreview) return;
+    invalidatePendingFileRead();
     const applied = applyRepairPreview(document.source, repairPreview);
     if (!applied) {
       setRepairPreview(null);
@@ -205,6 +314,7 @@ function App() {
 
   const handleUndoRepair = () => {
     if (!appliedRepair) return;
+    invalidatePendingFileRead();
     const previous = undoAppliedRepair(document.source, appliedRepair);
     if (!previous) {
       setAppliedRepair(null);
@@ -227,7 +337,12 @@ function App() {
 
   return (
     <Box
+      component="main"
+      onDragOver={handleFileDragOver}
+      onDragLeave={handleFileDragLeave}
+      onDrop={handleFileDrop}
       sx={{
+        position: 'relative',
         display: "flex",
         flexDirection: "column",
         width: "100%",
@@ -238,7 +353,34 @@ function App() {
       <MenuBar
         document={document}
         onFileLoad={handleFileLoad}
+        onDemoLoad={handleDemoLoad}
+        onOpenFile={openFilePicker}
       />
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={SPATIAL_FILE_ACCEPT}
+        aria-hidden="true"
+        tabIndex={-1}
+        style={{ display: 'none' }}
+        onChange={handleFileInputChange}
+      />
+
+      {!hasStartedWorkspace && (
+        <StartingExperience
+          onOpenFile={openFilePicker}
+          onDemoSelect={handleDemoLoad}
+          isReadingFile={isReadingFile}
+          errorMessage={fileReadError}
+        />
+      )}
+      {hasStartedWorkspace && fileReadError && (
+        <SnackbarAlert key={fileReadError} message={fileReadError} severity="error" />
+      )}
+      {hasStartedWorkspace && isReadingFile && (
+        <SnackbarAlert message="Reading your file…" severity="info" />
+      )}
 
       <Box
         sx={{
@@ -283,6 +425,7 @@ function App() {
             onFeatureSelect={viewerDocument === document ? handleFeatureSelect : undefined}
             terrainComparisonRequest={terrainRequestForViewer}
             onTerrainComparisonResult={handleTerrainComparisonResult}
+            presentationRequest={viewerPresentationRequest}
             sx={{
               width: "100%",
               height: "100%",
@@ -353,6 +496,36 @@ function App() {
           </Box>
         </Box>
       </Box>
+
+      {isDraggingFile && (
+        <Box
+          role="status"
+          aria-live="polite"
+          sx={{
+            position: 'absolute',
+            inset: 8,
+            zIndex: 1500,
+            display: 'grid',
+            placeItems: 'center',
+            border: '3px dashed',
+            borderColor: 'primary.main',
+            borderRadius: 2,
+            bgcolor: 'rgba(10, 25, 41, 0.82)',
+            pointerEvents: 'none',
+            textAlign: 'center',
+            p: 2,
+          }}
+        >
+          <Box>
+            <Typography component="p" variant="h5" sx={{ color: 'common.white', mb: 0.5 }}>
+              Drop to inspect
+            </Typography>
+            <Typography component="p" variant="body2" sx={{ color: 'common.white' }}>
+              GeoJSON or supported JSON-FG files
+            </Typography>
+          </Box>
+        </Box>
+      )}
     </Box>
   );
 }

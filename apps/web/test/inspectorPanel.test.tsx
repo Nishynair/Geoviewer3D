@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { inspectGeoJSON } from 'spatial-doctor';
+import { inspectGeoJSON } from '@nish-andran/spatial-doctor';
 import InspectorPanel from '../src/components/InspectorPanel';
 import { createSpatialDocument } from '../src/spatialDocument';
 import { previewGeoJSONRepair } from '../src/utils/geoJsonRepairs';
@@ -125,6 +125,23 @@ function textContent(markup: string): string {
 }
 
 describe('InspectorPanel', () => {
+  it('tells users how to continue with source text the viewer cannot inspect', () => {
+    const syntaxError = textContent(renderDocument('{"type":', 'broken.geojson'));
+    const invalidGeoJSON = textContent(renderDocument(
+      JSON.stringify({ type: 'Circle', coordinates: [1, 2] }),
+      'invalid.geojson',
+    ));
+    const unsupportedJsonFg = textContent(renderDocument(JSON.stringify({
+      type: 'FeatureSequence',
+      conformsTo: ['http://www.opengis.net/spec/json-fg-1/1.0/conf/core'],
+      features: [],
+    }), 'sequence.jsonfg'));
+
+    expect(syntaxError).toContain('Correct the JSON text in the Editor tab');
+    expect(invalidGeoJSON).toContain('Open the Editor tab to edit the source or preview a safe repair below.');
+    expect(unsupportedJsonFg).toContain('Edit the JSON-FG source in the Editor tab or open a supported Feature or FeatureCollection.');
+  });
+
   it('explains the supported JSON-FG geometry view and declared CRS scope', () => {
     const markup = textContent(renderDocument(JSON.stringify({
       type: 'FeatureCollection',
@@ -191,7 +208,7 @@ describe('InspectorPanel', () => {
 
     expect(markup).toContain('Invalid JSON-FG');
     expect(markup).toContain('invalid-geojson');
-    expect(markup).toContain('This document does not match the required GeoJSON structure.');
+    expect(markup).toContain('This must be an object.');
     expect(markup).not.toContain('Feature count');
     expect(markup).not.toContain('Coordinate tuples');
   });
@@ -245,7 +262,7 @@ describe('InspectorPanel', () => {
     expect(markup).toContain('X 12 to 12');
     expect(markup).toContain('Y -5 to -5');
     expect(markup).toContain('No Z values');
-    expect(markup).toContain('No package diagnostics for this document.');
+    expect(markup).toContain('No findings from the supported checks.');
   });
 
   it('renders XYZ Z minimum and maximum from the report', () => {
@@ -258,6 +275,59 @@ describe('InspectorPanel', () => {
     expect(markup).toContain('Dimensions XYZ');
     expect(markup).toContain('Coordinate tuples 2');
     expect(markup).toContain('Z range -4 to 18');
+    expect(markup).toContain('Z range uses only the third coordinate ordinate; no altitude or vertical datum is inferred.');
+  });
+
+  it('shows recursive geometry totals and nested geometry counts from the report', () => {
+    const markup = textContent(renderDocument(JSON.stringify({
+      type: 'Feature',
+      properties: {},
+      geometry: {
+        type: 'GeometryCollection',
+        geometries: [
+          { type: 'Point', coordinates: [12, -5, 8] },
+          {
+            type: 'GeometryCollection',
+            geometries: [{ type: 'LineString', coordinates: [[1, 2, -4], [3, 4, 18]] }],
+          },
+        ],
+      },
+    })));
+
+    expect(markup).toContain('Recursive geometry count 4');
+    expect(markup).toContain('GeometryCollection 2');
+    expect(markup).toContain('LineString 1');
+    expect(markup).toContain('Point 1');
+    expect(markup).toContain('Coordinate tuples 3');
+    expect(markup).toContain('X 1 to 12');
+    expect(markup).toContain('Y -5 to 4');
+    expect(markup).toContain('Z range -4 to 18');
+  });
+
+  it('keeps repeated findings bounded while preserving access to every actual location', () => {
+    const rawText = JSON.stringify({
+      type: 'FeatureCollection',
+      features: Array.from({ length: 12 }, (_, index) => ({
+        type: 'Feature',
+        properties: { index },
+        geometry: { type: 'Point', coordinates: [101.7110640441606 + index * 0.00001, 3.156344328317985] },
+      })),
+    });
+    const document = createSpatialDocument('precise-points.geojson', rawText, inspectGeoJSON);
+    if (document.report?.valid !== true) throw new Error('Expected valid coordinates with precision warnings.');
+    const findingCount = document.report.diagnostics.length;
+    const markup = renderToStaticMarkup(
+      <InspectorPanel document={document} onSelectDiagnostic={() => undefined} />,
+    );
+
+    expect(findingCount).toBeGreaterThan(5);
+    expect(textContent(markup)).toContain(`${findingCount} findings:`);
+    expect(textContent(markup)).toContain('Coordinate precision heuristic');
+    expect(textContent(markup)).toContain(`Show ${findingCount - 1} more locations`);
+    expect(markup.split('<details')[0]?.match(/role="alert"/g)?.length).toBe(1);
+    expect(markup.match(/role="alert"/g)?.length).toBe(findingCount);
+    expect(markup).toContain('<details');
+    expect(markup).not.toContain('<details open');
   });
 
   it('explains mixed dimensions without marking the report invalid', () => {
@@ -278,9 +348,34 @@ describe('InspectorPanel', () => {
     })));
 
     expect(markup).toContain('Dimensions Mixed XY/XYZ');
-    expect(markup).toContain('This valid document contains both XY and XYZ coordinate tuples.');
-    expect(markup).toContain('No package diagnostics for this document.');
+    expect(markup).toContain('This document contains both XY and XYZ coordinate positions.');
+    expect(markup).toContain('Mixed XY and XYZ dimensions');
+    expect(markup).toContain('1 finding: 1 warning.');
     expect(markup).not.toContain('Invalid GeoJSON');
+  });
+
+  it('counts coordinate findings and offers source-only navigation for unsafe coordinates', () => {
+    const rawText = JSON.stringify({
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        id: 'unsafe',
+        properties: {},
+        geometry: { type: 'Point', coordinates: [181, 2] },
+      }],
+    }, null, 2);
+    const document = createSpatialDocument('unsafe.geojson', rawText, inspectGeoJSON);
+    const markup = textContent(renderToStaticMarkup(
+      <InspectorPanel document={document} onSelectDiagnostic={() => undefined} />,
+    ));
+
+    expect(markup).toContain('1 finding: 1 error.');
+    expect(markup).toContain('Longitude or latitude out of range 1 error');
+    expect(markup).toContain('Longitude must be within -180 to 180 degrees and latitude within -90 to 90 degrees.');
+    expect(markup).toContain('Coordinate path [] (zero-based within the geometry)');
+    expect(markup).toContain("This feature's geometry contains an out-of-range position and is omitted from the globe.");
+    expect(markup).toContain('Show source');
+    expect(markup).not.toContain('Show feature');
   });
 
   it('explains an empty report without showing bounds or Z values', () => {
@@ -302,7 +397,7 @@ describe('InspectorPanel', () => {
 
     expect(markup).toContain('broken.geojson');
     expect(markup).toContain('JSON syntax error');
-    expect(markup).toContain('Correct the JSON text to see a GeoJSON overview.');
+    expect(markup).toContain('Correct the JSON text in the Editor tab to see a GeoJSON overview.');
     expect(markup).not.toContain('Invalid GeoJSON');
     expect(markup).not.toContain('Feature count');
     expect(markup).not.toContain('Coordinate tuples');
@@ -320,7 +415,7 @@ describe('InspectorPanel', () => {
     expect(markup).toContain('Invalid GeoJSON');
     expect(markup).toContain('invalid-geojson');
     expect(markup).toContain('error');
-    expect(markup).toContain('This document does not match the required GeoJSON structure.');
+    expect(markup).toContain('This must be an object.');
     expect(markup).not.toContain('Feature count');
     expect(markup).not.toContain('Coordinate tuples');
     expect(markup).not.toContain('Point 1');

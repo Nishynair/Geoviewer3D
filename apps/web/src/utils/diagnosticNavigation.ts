@@ -1,5 +1,5 @@
 import type { GeoJSON as GeoJSONValue, Feature } from 'geojson';
-import type { Diagnostic } from 'spatial-doctor';
+import type { Diagnostic } from '@nish-andran/spatial-doctor';
 
 export const FEATURE_INDEX_PROPERTY = '__geoviewer3dFeatureIndex';
 
@@ -29,8 +29,10 @@ export interface DiagnosticFeatureFocusActions<T> {
 export type FeaturePropertiesReader<T> = (entity: T) => Record<string, unknown> | undefined;
 
 export interface DiagnosticReference {
+  code?: string;
   featureId?: string | number;
   featureIndex?: number;
+  coordinatePath?: number[];
   sourceLocation?: SourceTextLocation;
 }
 

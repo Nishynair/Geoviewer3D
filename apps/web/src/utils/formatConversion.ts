@@ -1,4 +1,4 @@
-import { inspectGeoJSON } from 'spatial-doctor';
+import { inspectGeoJSON } from '@nish-andran/spatial-doctor';
 import type { SpatialDocument } from '../spatialDocument';
 import {
   inspectJsonFg,

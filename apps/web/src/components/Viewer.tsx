@@ -30,10 +30,18 @@ interface Viewer3DProps {
   geojson: GeoJsonValue | null;
   selectedFeatureIndex: number | null;
   navigationRequestId: number;
+  presentationRequest?: ViewerPresentationRequest | null;
   onFeatureSelect?: (featureIndex: number) => void;
   terrainComparisonRequest?: TerrainComparisonRequest | null;
   onTerrainComparisonResult?: (requestId: number, result: TerrainComparisonResult) => void;
   sx?: SxProps<Theme>;
+}
+
+interface ViewerPresentationRequest {
+  requestId: number;
+  autoRotate: boolean;
+  colorByElevation: boolean;
+  verticalExaggeration: number;
 }
 
 interface LoadedDataSource {
@@ -51,6 +59,7 @@ export default function Viewer3D({
   geojson,
   selectedFeatureIndex,
   navigationRequestId,
+  presentationRequest = null,
   onFeatureSelect,
   terrainComparisonRequest = null,
   onTerrainComparisonResult,
@@ -58,9 +67,11 @@ export default function Viewer3D({
 }: Viewer3DProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewerRef = useRef<Cesium.Viewer | null>(null);
-  const [isRotating, setIsRotating] = useState(true);
-  const [colorByElevation, setColorByElevation] = useState(false);
-  const [verticalExaggeration, setVerticalExaggeration] = useState(1);
+  const [isRotating, setIsRotating] = useState(() => presentationRequest?.autoRotate ?? true);
+  const [colorByElevation, setColorByElevation] = useState(() => presentationRequest?.colorByElevation ?? false);
+  const [verticalExaggeration, setVerticalExaggeration] = useState(() =>
+    normalizeVerticalExaggeration(presentationRequest?.verticalExaggeration ?? 1),
+  );
   const [exaggerationError, setExaggerationError] = useState<string | null>(null);
   const [rotationData, setRotationData] = useState<RotationData | null>(null);
   const [loadedDataSource, setLoadedDataSource] = useState<LoadedDataSource | null>(null);
@@ -82,6 +93,14 @@ export default function Viewer3D({
   terrainRequestRef.current = terrainComparisonRequest;
   onTerrainComparisonResultRef.current = onTerrainComparisonResult;
   currentGeoJSONRef.current = geojson;
+
+  useEffect(() => {
+    if (!presentationRequest) return;
+    setIsRotating(presentationRequest.autoRotate);
+    setColorByElevation(presentationRequest.colorByElevation);
+    setVerticalExaggeration(normalizeVerticalExaggeration(presentationRequest.verticalExaggeration));
+    setExaggerationError(null);
+  }, [presentationRequest]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -174,6 +193,11 @@ export default function Viewer3D({
               flyTo: (source) => viewer.flyTo(source),
             },
             isCurrent,
+            () => setLoadedDataSource({
+              dataSource: loadedDataSource,
+              geojson,
+              featureIndexProperty: indexedViewerValue.featureIndexProperty,
+            }),
           );
         } else {
           await viewer.dataSources.add(loadedDataSource);
@@ -186,11 +210,6 @@ export default function Viewer3D({
         if (!addedAndViewed || !isCurrent()) return;
 
         lastLoadedCanonicalGeoJSONRef.current = geojson;
-        setLoadedDataSource({
-          dataSource: loadedDataSource,
-          geojson,
-          featureIndexProperty: indexedViewerValue.featureIndexProperty,
-        });
 
         // Compute bounding sphere center & radius
         const positions: Cesium.Cartesian3[] = [];
@@ -269,6 +288,10 @@ export default function Viewer3D({
     if (!colorByElevation || !loadedDataSource || !elevationStyle) return;
     if (!isCurrentLoadedGeoJSON(geojson, loadedDataSource.geojson)) return;
 
+    const requestRender = () => {
+      const viewer = viewerRef.current;
+      if (viewer && !viewer.isDestroyed()) viewer.scene.requestRender();
+    };
     const time = Cesium.JulianDate.now();
     const restore: Array<() => void> = [];
     for (const entity of loadedDataSource.dataSource.entities.values) {
@@ -314,9 +337,11 @@ export default function Viewer3D({
         restore.push(() => { point.color = previous; });
       }
     }
+    requestRender();
 
     return () => {
       for (const restoreOne of restore) restoreOne();
+      requestRender();
     };
   }, [colorByElevation, elevationStyle, geojson, loadedDataSource, selectedFeatureIndex]);
 

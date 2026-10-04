@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { inspectGeoJSON } from 'spatial-doctor';
+import { inspectGeoJSON } from '@nish-andran/spatial-doctor';
 import {
   createSpatialDocument as createSpatialDocumentImpl,
   getGeoJSONForViewer,
