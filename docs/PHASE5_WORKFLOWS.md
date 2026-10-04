@@ -1,6 +1,6 @@
 # Phase 5 examples
 
-The app starts with `klcc-flat.json`, a valid GeoJSON polygon with XYZ positions. Open the Inspector to review its feature and geometry counts, coordinate dimensions, Z range, and bounds. Before opening a file, choose `Clean3DBuildings`, `BrokenGeometry`, or `ElevationTerrain` in the first-use panel to open a focused demo in one selection. The demos are synthetic and their provenance, license, modifications, and purpose are recorded in [Built-in demo data](DEMO_DATA.md).
+The app opens with `Clean3DBuildings`. The first-use panel lets you choose `Clean3DBuildings`, `BrokenGeometry`, or `ElevationTerrain` in one selection; the **Examples** menu also contains the earlier `klcc-flat.json` sample, a valid GeoJSON polygon with XYZ positions. The demos are authored synthetic fixtures, and their provenance, license, modifications, and purpose are recorded in [Built-in demo data](DEMO_DATA.md).
 
 Use **Examples** in the top bar to load the demos or the two additional samples:
 
