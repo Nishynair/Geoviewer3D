@@ -245,3 +245,96 @@ test('invalid geometry diagnostics remain source-only and keep the viewer blocke
   assert.equal(harness.panel, 'editor');
   assert.equal(getGeoJSONForViewer(document), null);
 });
+
+test('an unclosed ring diagnostic opens its source and never selects or renders the invalid feature', () => {
+  const rawText = JSON.stringify({
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      id: 'open-lot',
+      properties: {},
+      geometry: { type: 'Polygon', coordinates: [[[0, 0], [4, 0], [4, 4], [0, 4]]] },
+    }],
+  }, null, 2);
+  const document = makeDocument(rawText);
+  const diagnostic = document.report.diagnostics.find(
+    ({ code }) => code === 'unclosed-polygon-ring',
+  );
+
+  assert.equal(document.report.valid, false);
+  assert.equal(document.parsed, null);
+  assert.equal(getGeoJSONForViewer(document), null);
+  assert.notEqual(diagnostic, undefined);
+  const ringOnlyDocument = {
+    ...document,
+    report: { ...document.report, diagnostics: [diagnostic] },
+  };
+  const harness = createHarness(ringOnlyDocument);
+  const inspector = InspectorPanel({
+    document: ringOnlyDocument,
+    onSelectDiagnostic: (selected) => harness.controller.selectDiagnostic(selected),
+  });
+  const markup = renderToStaticMarkup(inspector);
+  const action = findElementWithActionText(inspector, 'Show source');
+
+  assert.match(markup, /1 finding: 1 error/);
+  assert.match(markup, /Unclosed polygon ring/);
+  assert.match(markup, /This ring finding uses only positions that could be read safely/);
+  assert.match(markup, /This structurally invalid document is not shown on the globe/);
+  assert.notEqual(action, null);
+  action.props.onClick({});
+
+  assert.equal(harness.selection.diagnostic.code, 'unclosed-polygon-ring');
+  assert.equal(harness.selection.featureIndex, null);
+  assert.deepEqual(
+    JSON.parse(rawText.slice(harness.selection.sourceLocation.start, harness.selection.sourceLocation.end)),
+    [0, 4],
+  );
+  assert.equal(harness.panel, 'editor');
+});
+
+test('precision warnings navigate to the valid feature while leaving it viewer eligible', () => {
+  const rawText = JSON.stringify({
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      id: 'fine-line',
+      properties: {},
+      geometry: {
+        type: 'LineString',
+        coordinates: [[0.12345678901234566, 10], [12.3456789012345, 20]],
+      },
+    }],
+  }, null, 2);
+  const document = makeDocument(rawText);
+  const harness = createHarness(document);
+  const diagnostic = document.report.diagnostics.find(
+    ({ code }) => code === 'excess-coordinate-precision',
+  );
+
+  assert.equal(document.report.valid, true);
+  assert.notEqual(getGeoJSONForViewer(document), null);
+  assert.notEqual(diagnostic, undefined);
+  const inspector = InspectorPanel({
+    document,
+    onSelectDiagnostic: (selected) => harness.controller.selectDiagnostic(selected),
+  });
+  const markup = renderToStaticMarkup(inspector);
+  const action = findElementWithActionText(inspector, 'Show feature and source');
+
+  assert.match(markup, /1 finding: 1 warning/);
+  assert.match(markup, /High coordinate precision/);
+  assert.match(markup, /does not establish accuracy or recover the original JSON text/);
+  assert.match(markup, /numeric precision heuristic above 15 significant digits/);
+  assert.notEqual(action, null);
+  action.props.onClick({});
+
+  assert.equal(harness.selection.diagnostic.code, 'excess-coordinate-precision');
+  assert.equal(harness.selection.featureIndex, 0);
+  assert.deepEqual(
+    JSON.parse(rawText.slice(harness.selection.sourceLocation.start, harness.selection.sourceLocation.end)),
+    [0.12345678901234566, 10],
+  );
+  assert.deepEqual(getGeoJSONForViewer(document), document.parsed);
+  assert.equal(harness.panel, 'editor');
+});

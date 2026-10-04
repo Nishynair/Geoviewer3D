@@ -454,6 +454,108 @@ test('does not emit partial coordinate findings when structural validation fails
   assert.ok(report.diagnostics.every(({ code }) => code === 'invalid-geojson'));
 });
 
+test('reports safely readable unclosed polygon rings as source-addressable invalid findings', () => {
+  const input = {
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      id: 'open-lot',
+      properties: {},
+      geometry: {
+        type: 'GeometryCollection',
+        geometries: [{
+          type: 'MultiPolygon',
+          coordinates: [[[[0, 0], [4, 0], [4, 4], [0, 4]]]],
+        }],
+      },
+    }],
+  };
+
+  const first = inspectGeoJSON(input);
+  const second = inspectGeoJSON(input);
+
+  assert.deepEqual(first, second);
+  assert.equal(first.valid, false);
+  assert.equal(first.summary, null);
+  assert.equal(first.coordinates, null);
+  assert.ok(first.diagnostics.some(({ code }) => code === 'invalid-geojson'));
+  assert.deepEqual(first.diagnostics.filter(({ code }) => code === 'unclosed-polygon-ring'), [{
+    code: 'unclosed-polygon-ring',
+    severity: 'error',
+    message: 'The last position in this polygon ring does not match its first position; GeoJSON polygon rings must be closed.',
+    featureId: 'open-lot',
+    featureIndex: 0,
+    coordinatePath: [0, 0, 0, 3],
+  }]);
+  assert.ok(first.diagnostics.every(({ code }) =>
+    code === 'invalid-geojson' || code === 'unclosed-polygon-ring'));
+});
+
+test('only extracts open rings when every position in the ring can be read safely', () => {
+  const input = {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'Polygon', coordinates: [[[0, 0], [4, 0], [4, 4]]] },
+      },
+      {
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'Polygon', coordinates: [[[0, 0], ['broken', 1], [0, 4]]] },
+      },
+    ],
+  };
+
+  assert.doesNotThrow(() => inspectGeoJSON(input));
+  const report = inspectGeoJSON(input);
+
+  assert.equal(report.valid, false);
+  assert.deepEqual(report.diagnostics.filter(({ code }) => code === 'unclosed-polygon-ring'), [{
+    code: 'unclosed-polygon-ring',
+    severity: 'error',
+    message: 'The last position in this polygon ring does not match its first position; GeoJSON polygon rings must be closed.',
+    featureIndex: 0,
+    coordinatePath: [0, 2],
+  }]);
+  assert.ok(report.diagnostics.every(({ code }) =>
+    code === 'invalid-geojson' || code === 'unclosed-polygon-ring'));
+});
+
+test('reports one documented precision warning per coordinate tuple over the numeric threshold', () => {
+  const input = {
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      id: 'fine-line',
+      properties: {},
+      geometry: {
+        type: 'LineString',
+        coordinates: [
+          [0.12345678901234566, 10],
+          [12.3456789012345, 20],
+        ],
+      },
+    }],
+  };
+  const expected = [{
+    code: 'excess-coordinate-precision',
+    severity: 'warning',
+    message: 'At least one value in this coordinate is represented with more than 15 significant decimal digits. This numeric heuristic does not establish accuracy or recover the original JSON text.',
+    featureId: 'fine-line',
+    featureIndex: 0,
+    coordinatePath: [0],
+  }];
+
+  const first = inspectGeoJSON(input);
+  const second = inspectGeoJSON(input);
+
+  assert.deepEqual(first, second);
+  assert.equal(first.valid, true);
+  assert.deepEqual(first.diagnostics, expected);
+});
+
 test('rejects invalid members and metadata inside nested GeometryCollections', () => {
   const invalidInputs = [
     {
