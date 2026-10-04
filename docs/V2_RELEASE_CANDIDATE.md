@@ -45,10 +45,10 @@ findings; its out-of-range point remained in source and out of the globe. The
 terrain demo compared all three coordinates, with no unavailable samples. A
 synthetic file drop loaded a valid Point, malformed JSON stayed editable with a
 syntax error, and parseable non-GeoJSON stayed editable with an invalid report.
-For the tested terrain, imagery, and buildings, Cesium Ion requests returned
-successfully. The app processes source text in-browser, while map requests can
-disclose the viewed area; an explicit terrain comparison sends the selected
-feature coordinates for sampling.
+Cesium Ion terrain and building requests, and Bing Aerial imagery requests,
+returned successfully. The app processes source text in-browser, while map
+requests can disclose the viewed area; an explicit terrain comparison sends the
+selected feature coordinates for sampling.
 
 Reviewable screenshots: [V1 editor/viewer](../apps/web/public/Geoviewer3D_screen1.png),
 [V2 BrokenGeometry desktop](./screenshots/v2-broken-geometry-desktop.png), and
