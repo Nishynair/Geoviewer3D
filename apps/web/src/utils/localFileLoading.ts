@@ -9,6 +9,12 @@ export interface LocalSpatialFileCallbacks {
   onReadError: (fileName: string) => void;
 }
 
+export interface LocalFileLoadGuard {
+  invalidate(): void;
+  load(file: File, callbacks: LocalSpatialFileCallbacks): Promise<void>;
+  drop(event: Pick<DragEvent, 'dataTransfer' | 'preventDefault'>, callbacks: LocalSpatialFileCallbacks): Promise<void>;
+}
+
 export function isSupportedSpatialFileName(fileName: string): boolean {
   return SUPPORTED_SPATIAL_FILE_EXTENSION.test(fileName);
 }
@@ -66,4 +72,44 @@ export async function dropSpatialFile(
   }
 
   await loadLocalSpatialFile(file, callbacks);
+}
+
+export function createLocalFileLoadGuard(): LocalFileLoadGuard {
+  let generation = 0;
+
+  const guardCallbacks = (
+    requestGeneration: number,
+    callbacks: LocalSpatialFileCallbacks,
+  ): LocalSpatialFileCallbacks => {
+    const isCurrent = () => requestGeneration === generation;
+    return {
+      onReading: (fileName) => {
+        if (isCurrent()) callbacks.onReading(fileName);
+      },
+      onFileLoad: (fileName, rawText) => {
+        if (isCurrent()) callbacks.onFileLoad(fileName, rawText);
+      },
+      onUnsupportedFile: (fileName) => {
+        if (isCurrent()) callbacks.onUnsupportedFile(fileName);
+      },
+      onReadError: (fileName) => {
+        if (isCurrent()) callbacks.onReadError(fileName);
+      },
+    };
+  };
+
+  return {
+    invalidate() {
+      generation += 1;
+    },
+    load(file, callbacks) {
+      generation += 1;
+      return loadLocalSpatialFile(file, guardCallbacks(generation, callbacks));
+    },
+    drop(event, callbacks) {
+      if ((event.dataTransfer?.files.length ?? 0) === 0) return Promise.resolve();
+      generation += 1;
+      return dropSpatialFile(event, guardCallbacks(generation, callbacks));
+    },
+  };
 }
