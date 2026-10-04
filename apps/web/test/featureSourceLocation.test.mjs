@@ -5,6 +5,8 @@ import {
   findFeatureSourceLocation,
   resolveDiagnosticSourceLocation,
 } from '../src/utils/featureSourceLocation.ts';
+import { createSpatialDocument } from '../src/spatialDocument.ts';
+import { inspectGeoJSON } from 'spatial-doctor';
 
 test('maps an idless FeatureCollection member through nested JSON and escaped strings', () => {
   const rawText = `{
@@ -126,4 +128,43 @@ test('maps a root GeometryCollection coordinate path without inventing a Feature
 
   assert.notEqual(location, null);
   assert.equal(rawText.slice(location.start, location.end), '[181,2]');
+});
+
+test('maps projected JSON-FG diagnostics through the source Feature geometry and rejects stale geometry', () => {
+  const rawText = JSON.stringify({
+    type: 'FeatureCollection',
+    conformsTo: ['http://www.opengis.net/spec/json-fg-1/1.0/conf/core'],
+    features: [{
+      type: 'Feature',
+      id: 'ranged',
+      properties: { name: 'Ranged line' },
+      time: { interval: ['2020-01-01T00:00:00Z', '2020-01-02T00:00:00Z'] },
+      place: { type: 'Point', coordinates: [77, 88] },
+      geometry: { type: 'LineString', coordinates: [[10, 20], [181, 2]] },
+    }],
+  }, null, 2);
+  const document = createSpatialDocument('ranged.jsonfg', rawText, inspectGeoJSON);
+  const diagnostic = document.report?.diagnostics.find(
+    ({ code }) => code === 'coordinate-out-of-range',
+  );
+
+  assert.equal(document.format, 'jsonfg');
+  assert.equal(document.report?.valid, true);
+  assert.equal(document.parsed?.type, 'FeatureCollection');
+  assert.equal(document.parsed?.features[0]?.time, undefined);
+  assert.equal(document.parsed?.features[0]?.place, undefined);
+  assert.ok(rawText.includes('"time"'));
+  assert.ok(rawText.includes('"place"'));
+  assert.notEqual(diagnostic, undefined);
+
+  const location = findDiagnosticCoordinateSourceLocation(rawText, document.parsed, diagnostic);
+  assert.notEqual(location, null);
+  assert.deepEqual(JSON.parse(rawText.slice(location.start, location.end)), [181, 2]);
+  assert.equal(findDiagnosticCoordinateSourceLocation(rawText, {
+    ...document.parsed,
+    features: [{
+      ...document.parsed.features[0],
+      geometry: { type: 'LineString', coordinates: [[10, 20], [180, 2]] },
+    }],
+  }, diagnostic), null);
 });
