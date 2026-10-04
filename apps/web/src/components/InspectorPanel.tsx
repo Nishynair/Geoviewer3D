@@ -56,6 +56,12 @@ const DIAGNOSTIC_DEFINITIONS: Record<Diagnostic['code'], { title: string }> = {
   'coordinate-out-of-range': {
     title: 'Longitude or latitude out of range',
   },
+  'unclosed-polygon-ring': {
+    title: 'Unclosed polygon ring',
+  },
+  'excess-coordinate-precision': {
+    title: 'High coordinate precision',
+  },
 };
 
 const REPAIR_OPTIONS: Array<{ kind: GeoJSONRepairKind; label: string }> = [
@@ -649,8 +655,10 @@ function DiagnosticList({
       </Box>
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
         {coordinateChecksRan
-          ? 'Supported coordinate checks cover repeated adjacent full tuples, XY/XYZ dimensions, and longitude/latitude limits. They do not establish comprehensive spatial validity.'
-          : 'The GeoJSON structure check failed, so coordinate checks could not run.'}
+          ? 'Supported checks cover repeated adjacent full tuples, XY/XYZ dimensions, longitude/latitude limits, polygon ring closure, and a numeric precision heuristic above 15 significant digits. They do not establish comprehensive spatial validity or numeric accuracy.'
+          : diagnostics.some(({ code }) => code === 'unclosed-polygon-ring')
+            ? 'The GeoJSON structure check failed. This ring finding uses only positions that could be read safely; other coordinate checks could not run.'
+            : 'The GeoJSON structure check failed, so coordinate checks could not run.'}
       </Typography>
       <Box component="ul" aria-label="Inspection diagnostics" sx={{ listStyle: 'none', p: 0, m: 0 }}>
         {diagnostics.map((diagnostic, index) => {
@@ -679,6 +687,11 @@ function DiagnosticList({
                 {diagnostic.code === 'coordinate-out-of-range' && featureIndex === null && (
                   <Typography component="p" variant="body2" sx={{ mb: 0, mt: 0.5 }}>
                     Geometry containing out-of-range coordinates is omitted from the globe.
+                  </Typography>
+                )}
+                {diagnostic.code === 'unclosed-polygon-ring' && (
+                  <Typography component="p" variant="body2" sx={{ mb: 0, mt: 0.5 }}>
+                    This structurally invalid document is not shown on the globe; use the source to inspect the ring.
                   </Typography>
                 )}
                 {diagnostic.coordinatePath && (

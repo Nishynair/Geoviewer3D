@@ -7,7 +7,9 @@ export interface Diagnostic {
     | 'invalid-geojson'
     | 'duplicate-consecutive-position'
     | 'mixed-coordinate-dimensions'
-    | 'coordinate-out-of-range';
+    | 'coordinate-out-of-range'
+    | 'unclosed-polygon-ring'
+    | 'excess-coordinate-precision';
   severity: DiagnosticSeverity;
   message: string;
   featureId?: string | number;
@@ -143,6 +145,7 @@ export type InspectionReport =
     };
 
 const FALLBACK_MESSAGE = 'Input is not valid GeoJSON.';
+const MAX_SIGNIFICANT_COORDINATE_DIGITS = 15;
 
 function countGeometry(
   geometry: GeoJSONGeometry,
@@ -676,6 +679,17 @@ function sameCoordinateTuple(left: number[], right: number[]): boolean {
     && left.every((ordinate, index) => ordinate === right[index]);
 }
 
+function hasExcessiveSignificantDigits(value: number): boolean {
+  const decimalMantissa = value.toString().split(/[eE]/, 1)[0] ?? '';
+  const significantDigits = decimalMantissa
+    .replace('-', '')
+    .replace('.', '')
+    .replace(/^0+/, '')
+    .replace(/0+$/, '')
+    .length;
+  return significantDigits > MAX_SIGNIFICANT_COORDINATE_DIGITS;
+}
+
 function coordinateDiagnosticReference(
   position: CoordinateDiagnosticPosition,
 ): Pick<Diagnostic, 'featureId' | 'featureIndex' | 'coordinatePath'> {
@@ -693,6 +707,7 @@ function coordinateDiagnosticReference(
 function coordinateDiagnostics(input: ValidatedGeoJSON): Diagnostic[] {
   const duplicates: Diagnostic[] = [];
   const outOfRange: Diagnostic[] = [];
+  const excessivePrecision: Diagnostic[] = [];
   let firstDimension: 'XY' | 'XYZ' | null = null;
   let mixedDimensionPosition: CoordinateDiagnosticPosition | null = null;
 
@@ -711,6 +726,15 @@ function coordinateDiagnostics(input: ValidatedGeoJSON): Diagnostic[] {
         code: 'coordinate-out-of-range',
         severity: 'error',
         message: 'Longitude must be within -180 to 180 degrees and latitude within -90 to 90 degrees.',
+        ...coordinateDiagnosticReference(position),
+      });
+    }
+
+    if (position.position.some(hasExcessiveSignificantDigits)) {
+      excessivePrecision.push({
+        code: 'excess-coordinate-precision',
+        severity: 'warning',
+        message: 'At least one value in this coordinate is represented with more than 15 significant decimal digits. This numeric heuristic does not establish accuracy or recover the original JSON text.',
         ...coordinateDiagnosticReference(position),
       });
     }
@@ -827,10 +851,86 @@ function coordinateDiagnostics(input: ValidatedGeoJSON): Diagnostic[] {
         ...coordinateDiagnosticReference(mixedDimensionPosition),
       }];
 
-  return [...duplicates, ...mixedDimension, ...outOfRange];
+  return [...duplicates, ...mixedDimension, ...outOfRange, ...excessivePrecision];
 }
 
-function invalidReport(error?: unknown): InspectionReport {
+function unclosedRingDiagnostics(input: unknown): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+
+  const inspectRing = (
+    ring: unknown,
+    path: number[],
+    feature: JsonObject | null,
+    featureIndex: number | undefined,
+  ): void => {
+    if (!Array.isArray(ring) || ring.length < 2 || !ring.every(isDiagnosticPosition)) return;
+    const first = ring[0];
+    const last = ring[ring.length - 1];
+    if (!first || !last || sameCoordinateTuple(first, last)) return;
+
+    diagnostics.push({
+      code: 'unclosed-polygon-ring',
+      severity: 'error',
+      message: 'The last position in this polygon ring does not match its first position; GeoJSON polygon rings must be closed.',
+      ...coordinateDiagnosticReference({
+        position: last,
+        feature,
+        featureIndex,
+        coordinatePath: [...path, ring.length - 1],
+      }),
+    });
+  };
+
+  const inspectGeometry = (
+    geometry: unknown,
+    path: number[],
+    feature: JsonObject | null,
+    featureIndex: number | undefined,
+  ): void => {
+    if (!isObject(geometry)) return;
+    if (geometry.type === 'Polygon' && Array.isArray(geometry.coordinates)) {
+      geometry.coordinates.forEach((ring, ringIndex) =>
+        inspectRing(ring, [...path, ringIndex], feature, featureIndex),
+      );
+      return;
+    }
+    if (geometry.type === 'MultiPolygon' && Array.isArray(geometry.coordinates)) {
+      geometry.coordinates.forEach((polygon, polygonIndex) => {
+        if (!Array.isArray(polygon)) return;
+        polygon.forEach((ring, ringIndex) =>
+          inspectRing(ring, [...path, polygonIndex, ringIndex], feature, featureIndex),
+        );
+      });
+      return;
+    }
+    if (geometry.type === 'GeometryCollection' && Array.isArray(geometry.geometries)) {
+      geometry.geometries.forEach((child, childIndex) =>
+        inspectGeometry(child, [...path, childIndex], feature, featureIndex),
+      );
+    }
+  };
+
+  if (!isObject(input)) return diagnostics;
+  if (input.type === 'FeatureCollection' && Array.isArray(input.features)) {
+    input.features.forEach((feature, featureIndex) => {
+      if (
+        isObject(feature)
+        && feature.type === 'Feature'
+        && feature.geometry !== null
+      ) {
+        inspectGeometry(feature.geometry, [], feature, featureIndex);
+      }
+    });
+  } else if (input.type === 'Feature' && input.geometry !== null) {
+    inspectGeometry(input.geometry, [], input, 0);
+  } else {
+    inspectGeometry(input, [], null, undefined);
+  }
+
+  return diagnostics;
+}
+
+function invalidReport(error?: unknown, extraDiagnostics: Diagnostic[] = []): InspectionReport {
   const issues = error instanceof HintError ? error.issues : [];
   const diagnostics: Diagnostic[] = issues.map((issue) => ({
     code: 'invalid-geojson',
@@ -842,14 +942,16 @@ function invalidReport(error?: unknown): InspectionReport {
     valid: false,
     summary: null,
     coordinates: null,
-    diagnostics:
-      diagnostics.length > 0
+    diagnostics: [
+      ...(diagnostics.length > 0
         ? diagnostics
         : [{
-            code: 'invalid-geojson',
-            severity: 'error',
+            code: 'invalid-geojson' as const,
+            severity: 'error' as const,
             message: FALLBACK_MESSAGE,
-          }],
+          }]),
+      ...extraDiagnostics,
+    ],
   };
 }
 
@@ -861,7 +963,18 @@ export function inspectGeoJSON(input: unknown): InspectionReport {
 
     const originalTree: unknown = JSON.parse(serializedInput);
     const validationTree: unknown = JSON.parse(serializedInput);
-    validateWithNestedCollections(validationTree);
+    try {
+      validateWithNestedCollections(validationTree);
+    } catch (error: unknown) {
+      let ringDiagnostics: Diagnostic[] = [];
+      try {
+        ringDiagnostics = unclosedRingDiagnostics(originalTree);
+      } catch {
+        // Invalid input still returns the structural validation report when a
+        // polygon ring cannot be inspected safely.
+      }
+      return invalidReport(error, ringDiagnostics);
+    }
 
     // The validator checks the original root plus each removed GeometryCollection.
     const validatedInput = originalTree as ValidatedGeoJSON;

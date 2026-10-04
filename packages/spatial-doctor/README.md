@@ -2,10 +2,11 @@
 
 `inspectGeoJSON(input)` accepts an already-parsed JavaScript value. It does not
 parse editor or file text. A valid report contains `valid: true`, a `summary`,
-and a diagnostics array. An invalid report contains `valid: false`,
-`summary: null`, and stable diagnostics. The current inspector emits no
-diagnostics for valid GeoJSON and only a dataset-wide validation diagnostic for
-invalid GeoJSON.
+`coordinates` summary, and a diagnostics array. An invalid report contains
+`valid: false`, `summary: null`, `coordinates: null`, and stable diagnostics.
+An invalid report may include a source-addressable open-ring finding when that
+ring's coordinate tuples can be read safely. Such a finding does not make the
+document valid or viewer-eligible.
 
 ## Feature and geometry counts
 
@@ -67,7 +68,41 @@ range, its measurement is unavailable instead of returning `Infinity` or
 Diagnostics may carry a `featureId`, a zero-based `featureIndex` into a
 FeatureCollection (or index `0` for a root Feature), and a `sourceLocation`.
 The source location is a half-open range of zero-based UTF-16 offsets into the
-original text. Feature IDs are used only when they identify exactly one
-feature; the index can identify a feature without an ID. A bare Geometry has no
-feature to reference. The current inspector emits dataset-wide validation
-diagnostics only, so it does not offer geometry navigation for those rows.
+original text. Feature-scoped coordinate diagnostics also carry a
+`coordinatePath` through geometry coordinate arrays and nested
+`GeometryCollection.geometries` arrays. A bare Geometry has no Feature to
+reference.
+
+The supported diagnostic codes are:
+
+`invalid-geojson` describes structural validation. The remaining five codes
+below are the complete set of coordinate-quality checks.
+
+- `invalid-geojson` (`error`): the GeoJSON structure validator rejected the
+  document. Coordinates and summary are unavailable. This remains the viewer
+  eligibility gate.
+- `duplicate-consecutive-position` (`warning`): one coordinate tuple exactly
+  repeats the full preceding tuple, including Z and any additional ordinates.
+- `mixed-coordinate-dimensions` (`warning`): the document contains both XY and
+  XYZ coordinate tuples; one finding points to the first position with the
+  dimension that differs from the first tuple.
+- `coordinate-out-of-range` (`error`): a finite longitude falls outside
+  `[-180, 180]` or latitude outside `[-90, 90]`. The app omits the affected
+  feature geometry from the globe.
+- `unclosed-polygon-ring` (`error`): a ring's final tuple does not exactly
+  match its first tuple. When structural validation fails, the inspector emits
+  this finding only if the ring is an array of finite numeric tuples; its path
+  points to the final supplied tuple. Invalid geometry remains ineligible for
+  rendering.
+- `excess-coordinate-precision` (`warning`): one finding per coordinate tuple
+  when any finite ordinate has more than **15 significant decimal digits** in
+  its shortest JavaScript `Number.prototype.toString()` representation. This
+  threshold is a deterministic representation heuristic. JSON parsing may
+  already discard differences in the original number text; the check cannot
+  recover those digits or establish that the represented value is accurate or
+  needs that many digits.
+
+Finding counts include every emitted diagnostic, including each repeated tuple,
+out-of-range tuple, safely readable open ring, and high-precision coordinate
+tuple. They are counts of findings, not a completeness score. The inspector
+does not test topology or every aspect of spatial quality.
