@@ -8,6 +8,13 @@
 
 **Tech Stack:** React, TypeScript, Vite, Monaco, Cesium, npm workspaces, Vitest, `@placemarkio/check-geojson`.
 
+**Current release status (2026-10-04):** Workstreams 1–8 are complete. The
+application candidate is PR #37 and is not yet merged or deployed; GitHub Pages
+deploys only from `main`. `@nish-andran/spatial-doctor@1.0.0` is published and
+verified from the public registry. The final review identified the stale
+package-status text below; this update corrects it. No `v2.0` tag or GitHub
+Release has been created, and both require explicit user approval.
+
 ## Global Constraints
 
 - Baseline: `main` at merge `8d8ce2b` after Phase 5. Preserve unrelated untracked project notes and ignored local configuration.
@@ -20,16 +27,16 @@
 - Unsafe or invalid geometry stays out of the viewer. A dataset-wide or unlocatable diagnostic must not be presented as a feature-level map issue.
 - Explain that file inspection is performed in the browser and disclose actual external Cesium imagery, terrain, and building requests. Verify privacy wording against observed runtime requests before publishing it.
 - The five detectors must be deterministic. Treat excessive precision as a documented heuristic over the numeric/source representation available; do not claim original lexical precision after JSON parsing if it cannot be recovered.
-- Publish `spatial-doctor` only after its built JavaScript and declaration files install and work in a clean external consumer. Publish version `1.0.0` only after its public API is stable and agreed. The npm owner/name and publishing authorization are open release inputs; do not print credentials or claim publication before registry verification.
-- Create the `v2.0` application tag only after implementation, independent review, and release checks pass.
+- `@nish-andran/spatial-doctor@1.0.0` is published. Its built JavaScript and declaration files were verified from the public registry in clean external consumers. Do not print credentials or imply a web release before its deployment is verified.
+- Create the `v2.0` application tag or GitHub Release only after implementation, independent review, release checks, and the deployed Pages journey pass, and only after explicit user approval.
 - Mechanical implementation and independent review work use the requested Luna max model.
 
 ## Baseline Evidence
 
 - `README.md` has one screenshot, the live app link, environment setup, root commands, and project-document links; it does not provide a first-run walkthrough or data-flow illustration.
 - The default KLCC XYZ sample plus the Examples menu's open-ring and native-place samples provide starting material for three demos. The current app has file upload, but no drag/drop handler was found.
-- `spatial-doctor` currently exports `inspectGeoJSON(input)` and `measureGeoJSONGeometry(input)`. Its valid report already has `coordinates.zRange`; its only diagnostic code is `invalid-geojson`, currently dataset-wide. Valid documents currently produce no diagnostics.
-- `packages/spatial-doctor/package.json` is private, version `0.0.0`, and directs both runtime and type exports at TypeScript source. It has no distributable JavaScript/declaration build.
+- At the start of this release effort, `spatial-doctor` exported `inspectGeoJSON(input)` and `measureGeoJSONGeometry(input)`, with only dataset-wide `invalid-geojson` diagnostics. The release implementation retains those entry points and adds the five bounded findings in Global Constraints.
+- At the start of this release effort, the workspace package was private and had no distributable JavaScript/declarations. It is now published as `@nish-andran/spatial-doctor@1.0.0`; its README examples were tested from the public registry on Node 20 and Node 24, including TypeScript declaration resolution.
 
 ## Ordered Workstreams
 
@@ -92,12 +99,17 @@ Diagnostic definitions must explain the condition in plain language. Attach stab
 ### 7. Build and publish the reusable npm package
 
 - Compile the package to ESM JavaScript plus `.d.ts` declarations. Update `exports`, `types`, `files`, scripts, license metadata, and README install/API examples so an ordinary JavaScript/TypeScript consumer can use it without Vite or native TypeScript loading.
-- Keep the validated GeoJSON dependency declared as a runtime dependency. Keep package contents limited to the package, declarations, README, and license.
+- Keep the validated GeoJSON dependency declared as a runtime dependency. Limit the packed files to the package manifest, built JavaScript/declarations, README, changelog, and license.
 - Run `npm pack --dry-run`, inspect the tarball contents, then install that tarball into a clean temporary consumer and test both JavaScript imports and TypeScript declarations.
-- Resolve and verify the final npm package name/owner and publishing authorization before publishing. If these remain unresolved, finish and verify the packable artifact but report npm publication as pending; do not publish under an assumed owner or claim that it was published.
-- Publish `1.0.0` only if API stability has been explicitly established. Do not create an unnecessary extraction package or add XYZ/CLI functionality.
+- Resolved: the package name is `@nish-andran/spatial-doctor`, published under the authorized `nish-andran` account. The stable public API is published at `1.0.0`; the exact reviewed tarball was verified against public registry metadata and a clean consumer.
+- Do not create an unnecessary extraction package or add XYZ/CLI functionality.
 
 **Acceptance:** A clean external consumer imports the built API and types from the packed artifact. Registry publication is reported only after checking the exact package/version in npm.
+
+**Completed:** `@nish-andran/spatial-doctor@1.0.0` was published after the
+public JavaScript/declaration artifact passed clean external consumer checks.
+The public registry package and the README examples were verified on Node 20
+and Node 24; the TypeScript example resolved the published declarations.
 
 ### 8. Refresh README, docs, and architecture for the portfolio release
 
@@ -113,26 +125,33 @@ Diagnostic definitions must explain the condition in plain language. Attach stab
 - Run root install, test, typecheck, lint, build, and development workflows; run package tests independently; repeat packed-consumer verification.
 - Complete the Chrome UX acceptance for all three demos, valid and invalid input, diagnostic-to-source/map paths, and the external Cesium disclosure. Verify the production Pages base path and Cesium assets.
 - Obtain independent Spec/behavior and Standards review. Fix every P0–P2 finding and repeat the relevant gates until both reviews clear. Do not count self-review as independent review.
-- Publish the web release and create the `v2.0` tag only after release checks and review are clear. Publish the npm package only under the resolved name/owner and verified authorization. Record exact versions, checks, URLs, and any remaining bounded limitations.
+- Merge and verify the static Pages deployment only after release checks and independent review are clear. Record exact versions, checks, URLs, and any remaining bounded limitations. Stop before creating/pushing the `v2.0` tag or GitHub Release until the user explicitly approves those actions.
 
 **Acceptance:** The static app release and any npm package publication are verifiable and accurately described; no open P0–P2 issues remain.
 
 ## Release Checklist
 
-- [ ] Workstreams 1–9 completed in order; each leaves reviewable evidence.
-- [ ] Exactly the five approved diagnostic check families shipped; no extra diagnostic family or unsupported health score.
-- [ ] All three demos load and include provenance/license/modification/purpose records.
-- [ ] All emissions have stable codes and severities; references and explanations are truthful; unsafe invalid geometry is never rendered.
-- [ ] `spatial-doctor` packed artifact contains runnable JS, `.d.ts`, README, and license, and passes a clean external consumer check.
-- [ ] npm owner/name and auth are resolved before registry publication; package is `1.0.0` only if the API is stable.
-- [ ] README screenshots/illustration, first-use guidance, data-processing disclosure, API examples, and known limitations match observed behavior.
-- [ ] Root checks, Chrome UX check, Pages build/path/assets, and independent review/fix loop pass.
-- [ ] `v2.0` tag created only after the above; release notes name the actual app and package release state.
+- [x] Workstreams 1–8 completed in order with reviewable evidence.
+- [x] Exactly the five approved diagnostic check families shipped; no extra diagnostic family or unsupported health score.
+- [x] All three demos load and include provenance/license/modification/purpose records.
+- [x] Findings have stable codes and severities; references and explanations are bounded; unsafe invalid geometry is never rendered.
+- [x] `@nish-andran/spatial-doctor@1.0.0` contains runnable JS, `.d.ts`, README, changelog, and license, and passes clean external consumer checks.
+- [x] Package name/owner and authorization were resolved; the public API was reviewed and published at `1.0.0`.
+- [x] README screenshots/illustration, first-use guidance, data-processing disclosure, API examples, and known limitations match observed behavior.
+- [x] Root checks and Chrome UX checks pass for the release candidate.
+- [x] The production build uses the Pages base path and includes the expected Cesium assets.
+- [ ] Independent review/fix loop is clear on the final release-candidate commit.
+- [ ] Merge the reviewed candidate, verify the resulting Pages deployment and deployed journey, then record the deployment evidence.
+- [ ] After the deployed journey is verified, present the exact proposed `v2.0` tag and GitHub Release for explicit user approval. No tag or GitHub Release has been created.
 
-## Decisions Still Required at Release Time
+## Resolved Release Decisions
 
-- Final npm package name/scope and owner account. The existing package name is unscoped and private; do not assume it can be claimed or published.
-- Whether the public package API is stable enough for `1.0.0` after API review. If not, defer npm publication/version without blocking the app release.
+- The package is `@nish-andran/spatial-doctor`, owned/published by the authorized `nish-andran` account.
+- The package API is stable at `1.0.0`; public-registry installation and README examples were verified.
+- The application release remains a candidate until the reviewed PR is merged and the main-only Pages workflow deploys it. The `v2.0` tag and GitHub Release require a separate explicit user approval.
+
+The concise candidate evidence, checks, and limitations are recorded in
+[V2 release candidate notes](./V2_RELEASE_CANDIDATE.md).
 
 **Chrome UX audit evidence (2026-10-04):** The deployed app was inspected in an isolated Chrome context at desktop 1440×900 and mobile 390×844. It opens with the KLCC sample and Editor tab selected; the Inspector overview is one tab away. Upload is a keyboard-reachable toolbar icon, but there is no drag/drop listener or first-use instruction. Mobile stacks the viewer above the Editor/Inspector tabs, putting much of the editor below the first screen. The deployed document title reads “GoeJSON Viewer”. The invalid open-ring example remains editable, is withheld from the viewer, and exposes repair previews; malformed JSON and unsupported JSON-FG remain in the editor and show errors. The explicit next action can be clearer in the Inspector.
 
