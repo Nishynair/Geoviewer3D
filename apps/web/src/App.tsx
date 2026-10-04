@@ -20,8 +20,7 @@ import InspectorPanel from './components/InspectorPanel';
 import StartingExperience from './components/StartingExperience';
 import SnackbarAlert from './components/SnackbarAlert';
 import {
-  dropSpatialFile,
-  loadLocalSpatialFile,
+  createLocalFileLoadGuard,
   SPATIAL_FILE_ACCEPT,
   type LocalSpatialFileCallbacks,
 } from './utils/localFileLoading';
@@ -71,6 +70,7 @@ function App() {
   const [isReadingFile, setIsReadingFile] = useState(false);
   const [fileReadError, setFileReadError] = useState<string | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const localFileLoadGuardRef = useRef(createLocalFileLoadGuard());
   const [terrainRequest, setTerrainRequest] = useState<TerrainComparisonRequest | null>(null);
   const [terrainResult, setTerrainResult] = useState<TerrainComparisonDisplay | null>(null);
   const [repairPreview, setRepairPreview] = useState<GeoJSONRepairPreview | null>(null);
@@ -168,6 +168,7 @@ function App() {
   const handleTextChange = createEditorTextChangeHandler(
     () => currentSourceTextRef.current,
     (rawText) => {
+      invalidatePendingFileRead();
       setHasStartedWorkspace(true);
       // The separate Monaco subscription also receives @monaco-editor/react's
       // controlled executeEdits update after Apply/Undo. Ignore that echo so it
@@ -180,8 +181,17 @@ function App() {
     },
   );
 
+  const invalidatePendingFileRead = () => {
+    localFileLoadGuardRef.current.invalidate();
+    setIsReadingFile(false);
+    setFileReadError(null);
+  };
+
   const handleFileLoad = (name: string, rawText: string) => {
+    invalidatePendingFileRead();
     setHasStartedWorkspace(true);
+    setSelection(null);
+    setRightPanel('inspector');
     setRepairPreview(null);
     setAppliedRepair(null);
     setDocument(createSpatialDocument(name, rawText, inspectGeoJSON));
@@ -212,7 +222,7 @@ function App() {
   };
 
   const handleLocalFileSelected = (file: File) => {
-    void loadLocalSpatialFile(file, fileCallbacks);
+    void localFileLoadGuardRef.current.load(file, fileCallbacks);
   };
 
   const handleFileInputChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -240,7 +250,7 @@ function App() {
 
   const handleFileDrop = (event: ReactDragEvent<HTMLDivElement>) => {
     setIsDraggingFile(false);
-    void dropSpatialFile(event.nativeEvent, fileCallbacks);
+    void localFileLoadGuardRef.current.drop(event.nativeEvent, fileCallbacks);
   };
 
   const handlePreviewRepair = (kind: GeoJSONRepairKind) => {
@@ -249,6 +259,7 @@ function App() {
 
   const handleApplyRepair = () => {
     if (!repairPreview) return;
+    invalidatePendingFileRead();
     const applied = applyRepairPreview(document.source, repairPreview);
     if (!applied) {
       setRepairPreview(null);
@@ -263,6 +274,7 @@ function App() {
 
   const handleUndoRepair = () => {
     if (!appliedRepair) return;
+    invalidatePendingFileRead();
     const previous = undoAppliedRepair(document.source, appliedRepair);
     if (!previous) {
       setAppliedRepair(null);
