@@ -233,6 +233,33 @@ test('a stale data-source add completes without starting a viewer flight', async
   assert.deepEqual(removedSources, [source]);
 });
 
+test('publishes an added data source before waiting for its camera flight', async () => {
+  let resolveFlight;
+  let presentationReady = false;
+  let flightStarted = false;
+  const pendingFlight = new Promise((resolve) => {
+    resolveFlight = resolve;
+  });
+  const source = { id: 'ready-before-flight-source' };
+
+  const operation = addAndFlyToIfCurrent(source, {
+    add: async () => undefined,
+    remove: () => undefined,
+    flyTo: () => {
+      flightStarted = true;
+      return pendingFlight;
+    },
+  }, () => true, () => {
+    presentationReady = true;
+  });
+
+  await Promise.resolve();
+  assert.equal(presentationReady, true);
+  assert.equal(flightStarted, true);
+  resolveFlight();
+  assert.equal(await operation, true);
+});
+
 test('a cancelled viewer flight removes its data source when it settles', async () => {
   let resolveFlight;
   let isCurrent = true;

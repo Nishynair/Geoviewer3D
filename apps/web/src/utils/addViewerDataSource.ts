@@ -8,12 +8,15 @@ export async function addAndFlyToIfCurrent<T>(
   source: T,
   actions: ViewerDataSourceActions<T>,
   isCurrent: () => boolean,
+  onAdded?: () => void,
 ): Promise<boolean> {
   await actions.add(source);
   if (!isCurrent()) {
     actions.remove(source);
     return false;
   }
+
+  onAdded?.();
 
   try {
     await actions.flyTo(source);
