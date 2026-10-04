@@ -1,5 +1,5 @@
 import type { GeoJSON as GeoJSONValue, Feature } from 'geojson';
-import type { Diagnostic } from 'spatial-doctor';
+import type { Diagnostic } from '@nish-andran/spatial-doctor';
 
 export const FEATURE_INDEX_PROPERTY = '__geoviewer3dFeatureIndex';
 

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { inspectGeoJSON } from 'spatial-doctor';
+import { inspectGeoJSON } from '@nish-andran/spatial-doctor';
 import KlccFlat from '../src/assets/sampleJSON/klcc-flat.json';
 import NativePlace from '../src/assets/sampleJSON/native-place.json';
 import OpenRingRepair from '../src/assets/sampleJSON/open-ring-repair.json';

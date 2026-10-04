@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { isValidElement } from 'react';
 import { test } from 'vitest';
-import { inspectGeoJSON } from 'spatial-doctor';
+import { inspectGeoJSON } from '@nish-andran/spatial-doctor';
 import InspectorPanel from '../src/components/InspectorPanel.tsx';
 import { createSpatialDocument, getGeoJSONForViewer } from '../src/spatialDocument.ts';
 import { FEATURE_INDEX_PROPERTY, getFeatureIndexFromProperties } from '../src/utils/diagnosticNavigation.ts';
