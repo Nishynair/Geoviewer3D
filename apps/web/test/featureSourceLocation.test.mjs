@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import {
+  findDiagnosticCoordinateSourceLocation,
   findFeatureSourceLocation,
   resolveDiagnosticSourceLocation,
 } from '../src/utils/featureSourceLocation.ts';
@@ -73,4 +74,56 @@ test('diagnostic source actions share the valid explicit range or structural fea
     featureIndex: 0,
     sourceLocation: { start: 2, end: 12 },
   }), { start: 2, end: 12 });
+});
+
+test('maps a coordinate path through nested GeometryCollections to the exact tuple source', () => {
+  const rawText = `{
+  "type": "FeatureCollection",
+  "features": [{
+    "type": "Feature",
+    "id": "unsafe",
+    "properties": {},
+    "geometry": {
+      "type": "GeometryCollection",
+      "geometries": [{
+        "type": "GeometryCollection",
+        "geometries": [
+          { "type": "Point", "coordinates": [1, 2] },
+          { "type": "Point", "coordinates": [181, 2] }
+        ]
+      }]
+    }
+  }]
+}`;
+  const parsed = JSON.parse(rawText);
+  const diagnostic = {
+    featureIndex: 0,
+    featureId: 'unsafe',
+    coordinatePath: [0, 1],
+  };
+
+  const location = findDiagnosticCoordinateSourceLocation(rawText, parsed, diagnostic);
+
+  assert.notEqual(location, null);
+  assert.equal(rawText.slice(location.start, location.end), '[181, 2]');
+  assert.deepEqual(resolveDiagnosticSourceLocation(rawText, parsed, diagnostic), location);
+  assert.deepEqual(resolveDiagnosticSourceLocation(rawText, parsed, {
+    ...diagnostic,
+    sourceLocation: { start: 0, end: 5 },
+  }), location);
+  assert.equal(resolveDiagnosticSourceLocation(rawText, parsed, {
+    ...diagnostic,
+    coordinatePath: [0, 99],
+    sourceLocation: { start: 0, end: 5 },
+  }), null);
+});
+
+test('maps a root GeometryCollection coordinate path without inventing a Feature', () => {
+  const rawText = '{"type":"GeometryCollection","geometries":[{"type":"Point","coordinates":[181,2]}]}';
+  const location = resolveDiagnosticSourceLocation(rawText, null, {
+    coordinatePath: [0],
+  });
+
+  assert.notEqual(location, null);
+  assert.equal(rawText.slice(location.start, location.end), '[181,2]');
 });

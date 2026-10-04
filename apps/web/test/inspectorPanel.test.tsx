@@ -191,7 +191,7 @@ describe('InspectorPanel', () => {
 
     expect(markup).toContain('Invalid JSON-FG');
     expect(markup).toContain('invalid-geojson');
-    expect(markup).toContain('This document does not match the required GeoJSON structure.');
+    expect(markup).toContain('This must be an object.');
     expect(markup).not.toContain('Feature count');
     expect(markup).not.toContain('Coordinate tuples');
   });
@@ -245,7 +245,7 @@ describe('InspectorPanel', () => {
     expect(markup).toContain('X 12 to 12');
     expect(markup).toContain('Y -5 to -5');
     expect(markup).toContain('No Z values');
-    expect(markup).toContain('No package diagnostics for this document.');
+    expect(markup).toContain('No findings from the supported checks.');
   });
 
   it('renders XYZ Z minimum and maximum from the report', () => {
@@ -278,9 +278,34 @@ describe('InspectorPanel', () => {
     })));
 
     expect(markup).toContain('Dimensions Mixed XY/XYZ');
-    expect(markup).toContain('This valid document contains both XY and XYZ coordinate tuples.');
-    expect(markup).toContain('No package diagnostics for this document.');
+    expect(markup).toContain('This document contains both XY and XYZ coordinate positions.');
+    expect(markup).toContain('Mixed XY and XYZ dimensions');
+    expect(markup).toContain('1 finding: 1 warning.');
     expect(markup).not.toContain('Invalid GeoJSON');
+  });
+
+  it('counts coordinate findings and offers source-only navigation for unsafe coordinates', () => {
+    const rawText = JSON.stringify({
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        id: 'unsafe',
+        properties: {},
+        geometry: { type: 'Point', coordinates: [181, 2] },
+      }],
+    }, null, 2);
+    const document = createSpatialDocument('unsafe.geojson', rawText, inspectGeoJSON);
+    const markup = textContent(renderToStaticMarkup(
+      <InspectorPanel document={document} onSelectDiagnostic={() => undefined} />,
+    ));
+
+    expect(markup).toContain('1 finding: 1 error.');
+    expect(markup).toContain('Longitude or latitude out of range 1 error');
+    expect(markup).toContain('Longitude must be within -180 to 180 degrees and latitude within -90 to 90 degrees.');
+    expect(markup).toContain('Coordinate path [] (zero-based within the geometry)');
+    expect(markup).toContain("This feature's geometry contains an out-of-range position and is omitted from the globe.");
+    expect(markup).toContain('Show source');
+    expect(markup).not.toContain('Show feature');
   });
 
   it('explains an empty report without showing bounds or Z values', () => {
@@ -320,7 +345,7 @@ describe('InspectorPanel', () => {
     expect(markup).toContain('Invalid GeoJSON');
     expect(markup).toContain('invalid-geojson');
     expect(markup).toContain('error');
-    expect(markup).toContain('This document does not match the required GeoJSON structure.');
+    expect(markup).toContain('This must be an object.');
     expect(markup).not.toContain('Feature count');
     expect(markup).not.toContain('Coordinate tuples');
     expect(markup).not.toContain('Point 1');

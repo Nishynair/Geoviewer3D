@@ -279,6 +279,52 @@ test('a valid spatial document diagnostic reaches its idless feature entities an
   assert.deepEqual(focused[1][1], plan.entities);
 });
 
+test('Cesium receives only safe feature geometries when a collection has out-of-range coordinates', async () => {
+  const rawText = JSON.stringify({
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'Point', coordinates: [181, 2] },
+      },
+      {
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'LineString', coordinates: [[10, 20], [11, 21]] },
+      },
+    ],
+  });
+  const document = createSpatialDocument('range.geojson', rawText, inspectGeoJSON);
+  const viewerValue = getGeoJSONForViewer(document);
+
+  assert.notEqual(viewerValue, null);
+  assert.equal(JSON.stringify(viewerValue).includes('181'), false);
+
+  const indexed = indexFeaturesForViewer(viewerValue);
+  const dataSource = await Cesium.GeoJsonDataSource.load(indexed.geojson);
+  const time = Cesium.JulianDate.now();
+  const readCesiumProperties = (entity) => entity.properties?.getValue(time);
+  const excludedFeatureEntities = findFeatureEntities(
+    dataSource.entities.values,
+    0,
+    indexed.featureIndexProperty,
+    readCesiumProperties,
+  );
+  const safeFeatureEntities = findFeatureEntities(
+    dataSource.entities.values,
+    1,
+    indexed.featureIndexProperty,
+    readCesiumProperties,
+  );
+  assert.equal(excludedFeatureEntities.length, 1);
+  assert.ok(excludedFeatureEntities.every((entity) =>
+    !entity.position && !entity.billboard && !entity.point && !entity.polyline && !entity.polygon,
+  ));
+  assert.equal(safeFeatureEntities.length, 1);
+  assert.notEqual(safeFeatureEntities[0].polyline, undefined);
+});
+
 test('navigation plans carry source offsets and every entity for the referenced feature', () => {
   const geojson = {
     type: 'FeatureCollection',

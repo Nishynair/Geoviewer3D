@@ -4,7 +4,7 @@ import { isValidElement } from 'react';
 import { test } from 'vitest';
 import { inspectGeoJSON } from 'spatial-doctor';
 import InspectorPanel from '../src/components/InspectorPanel.tsx';
-import { createSpatialDocument } from '../src/spatialDocument.ts';
+import { createSpatialDocument, getGeoJSONForViewer } from '../src/spatialDocument.ts';
 import { FEATURE_INDEX_PROPERTY, getFeatureIndexFromProperties } from '../src/utils/diagnosticNavigation.ts';
 import { createFeatureSelectionController } from '../src/utils/featureSelectionController.ts';
 
@@ -137,4 +137,111 @@ test('map picks and source actions from a previous document cannot change the cu
   assert.equal(harness.panel, 'inspector');
   assert.equal(harness.controller.selectFeatureFromMap(1), null);
   assert.equal(harness.selection, selection);
+});
+
+test('selecting a safe diagnostic reveals its exact coordinate and selects its feature', () => {
+  const rawText = JSON.stringify({
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      id: 'route',
+      properties: {},
+      geometry: { type: 'LineString', coordinates: [[1, 2], [1, 2]] },
+    }],
+  }, null, 2);
+  const document = makeDocument(rawText);
+  const harness = createHarness(document);
+  const diagnostic = document.report.diagnostics.find(
+    ({ code }) => code === 'duplicate-consecutive-position',
+  );
+  assert.notEqual(diagnostic, undefined);
+  const inspector = InspectorPanel({
+    document,
+    onSelectDiagnostic: (selected) => harness.controller.selectDiagnostic(selected),
+  });
+  const action = findElementWithActionText(inspector, 'Show feature and source');
+
+  assert.notEqual(action, null);
+  action.props.onClick({});
+
+  assert.equal(harness.selection.document, document);
+  assert.equal(harness.selection.featureIndex, 0);
+  assert.deepEqual(
+    JSON.parse(rawText.slice(harness.selection.sourceLocation.start, harness.selection.sourceLocation.end)),
+    [1, 2],
+  );
+  assert.equal(harness.panel, 'editor');
+});
+
+test('selecting an out-of-range diagnostic reveals source without selecting an unsafe feature', () => {
+  const rawText = JSON.stringify({
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        id: 'unsafe',
+        properties: {},
+        geometry: { type: 'Point', coordinates: [181, 2] },
+      },
+      {
+        type: 'Feature',
+        id: 'safe',
+        properties: {},
+        geometry: { type: 'Point', coordinates: [1, 2] },
+      },
+    ],
+  }, null, 2);
+  const document = makeDocument(rawText);
+  const harness = createHarness(document);
+  const diagnostic = document.report.diagnostics.find(
+    ({ code }) => code === 'coordinate-out-of-range',
+  );
+  assert.notEqual(diagnostic, undefined);
+  const inspector = InspectorPanel({
+    document,
+    onSelectDiagnostic: (selected) => harness.controller.selectDiagnostic(selected),
+  });
+  const action = findElementWithActionText(inspector, 'Show source');
+
+  assert.notEqual(action, null);
+  action.props.onClick({});
+
+  assert.equal(harness.selection.document, document);
+  assert.equal(harness.selection.featureIndex, null);
+  assert.deepEqual(
+    JSON.parse(rawText.slice(harness.selection.sourceLocation.start, harness.selection.sourceLocation.end)),
+    [181, 2],
+  );
+  assert.equal(harness.panel, 'editor');
+
+  const viewerData = getGeoJSONForViewer(document);
+  assert.notEqual(viewerData, null);
+  assert.equal(viewerData.features[0].geometry, null);
+  assert.deepEqual(viewerData.features[1].geometry, document.parsed.features[1].geometry);
+  assert.deepEqual(document.parsed.features[0].geometry.coordinates, [181, 2]);
+});
+
+test('invalid geometry diagnostics remain source-only and keep the viewer blocked', () => {
+  const rawText = JSON.stringify({
+    type: 'Feature',
+    properties: {},
+    geometry: { type: 'LineString', coordinates: [[1, 2]] },
+  }, null, 2);
+  const document = makeDocument(rawText);
+  assert.equal(document.report.valid, false);
+  assert.equal(document.parsed, null);
+  const harness = createHarness(document);
+  const inspector = InspectorPanel({
+    document,
+    onSelectDiagnostic: (selected) => harness.controller.selectDiagnostic(selected),
+  });
+  const action = findElementWithActionText(inspector, 'Show source');
+
+  assert.notEqual(action, null);
+  action.props.onClick({});
+
+  assert.equal(harness.selection.featureIndex, null);
+  assert.notEqual(harness.selection.sourceLocation, null);
+  assert.equal(harness.panel, 'editor');
+  assert.equal(getGeoJSONForViewer(document), null);
 });

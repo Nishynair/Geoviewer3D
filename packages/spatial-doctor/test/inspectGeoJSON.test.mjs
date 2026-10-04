@@ -219,6 +219,7 @@ test('counts nested GeometryCollections at geometry, Feature, and FeatureCollect
     {
       input: nestedCollectionFixture(),
       featureCount: 0,
+      featureIndex: undefined,
     },
     {
       input: {
@@ -227,6 +228,7 @@ test('counts nested GeometryCollections at geometry, Feature, and FeatureCollect
         properties: {},
       },
       featureCount: 1,
+      featureIndex: 0,
     },
     {
       input: {
@@ -241,10 +243,11 @@ test('counts nested GeometryCollections at geometry, Feature, and FeatureCollect
         ],
       },
       featureCount: 2,
+      featureIndex: 0,
     },
   ];
 
-  for (const { input, featureCount } of cases) {
+  for (const { input, featureCount, featureIndex } of cases) {
     const originalText = JSON.stringify(input);
     assert.deepEqual(inspectGeoJSON(input), {
       valid: true,
@@ -255,10 +258,200 @@ test('counts nested GeometryCollections at geometry, Feature, and FeatureCollect
         bounds: { minX: 1, maxX: 3, minY: 2, maxY: 4 },
         zRange: { min: 5, max: 5 },
       },
-      diagnostics: [],
+      diagnostics: [{
+        code: 'mixed-coordinate-dimensions',
+        severity: 'warning',
+        message: 'This document contains both XY and XYZ coordinate positions.',
+        ...(featureIndex === undefined ? {} : { featureIndex }),
+        coordinatePath: [1, 0, 0],
+      }],
     });
     assert.equal(JSON.stringify(input), originalText);
   }
+});
+
+test('reports exact consecutive tuple duplicates, including Z, with feature and coordinate references', () => {
+  const input = {
+    type: 'Feature',
+    id: 'route',
+    properties: {},
+    geometry: {
+      type: 'LineString',
+      coordinates: [[0, 0, 5], [0, 0, 5], [1, 1, 8], [1, 1, 8], [1, 1, 9]],
+    },
+  };
+
+  const first = inspectGeoJSON(input);
+  const second = inspectGeoJSON(input);
+
+  assert.deepEqual(first, second);
+  assert.equal(first.valid, true);
+  assert.deepEqual(first.diagnostics, [
+    {
+      code: 'duplicate-consecutive-position',
+      severity: 'warning',
+      message: 'The same full coordinate tuple appears in two consecutive positions.',
+      featureId: 'route',
+      featureIndex: 0,
+      coordinatePath: [1],
+    },
+    {
+      code: 'duplicate-consecutive-position',
+      severity: 'warning',
+      message: 'The same full coordinate tuple appears in two consecutive positions.',
+      featureId: 'route',
+      featureIndex: 0,
+      coordinatePath: [3],
+    },
+  ]);
+});
+
+test('reports a mixed XY and XYZ document at the first position with the other dimension', () => {
+  const input = {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'Point', coordinates: [10, 20] },
+      },
+      {
+        type: 'Feature',
+        id: 'elevated',
+        properties: {},
+        geometry: { type: 'Point', coordinates: [30, 40, 50] },
+      },
+    ],
+  };
+
+  const report = inspectGeoJSON(input);
+
+  assert.equal(report.valid, true);
+  assert.equal(report.coordinates.dimensions, 'mixed');
+  assert.deepEqual(report.diagnostics, [{
+    code: 'mixed-coordinate-dimensions',
+    severity: 'warning',
+    message: 'This document contains both XY and XYZ coordinate positions.',
+    featureId: 'elevated',
+    featureIndex: 1,
+    coordinatePath: [],
+  }]);
+});
+
+test('reports longitude and latitude outside inclusive geographic limits', () => {
+  const input = {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        id: 'east',
+        properties: {},
+        geometry: { type: 'Point', coordinates: [180.01, 10, 5] },
+      },
+      {
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'Point', coordinates: [180, 90, 0] },
+      },
+      {
+        type: 'Feature',
+        id: 'north',
+        properties: {},
+        geometry: { type: 'Point', coordinates: [10, 90.01, 0] },
+      },
+    ],
+  };
+
+  const report = inspectGeoJSON(input);
+
+  assert.equal(report.valid, true);
+  assert.deepEqual(report.diagnostics, [
+    {
+      code: 'coordinate-out-of-range',
+      severity: 'error',
+      message: 'Longitude must be within -180 to 180 degrees and latitude within -90 to 90 degrees.',
+      featureId: 'east',
+      featureIndex: 0,
+      coordinatePath: [],
+    },
+    {
+      code: 'coordinate-out-of-range',
+      severity: 'error',
+      message: 'Longitude must be within -180 to 180 degrees and latitude within -90 to 90 degrees.',
+      featureId: 'north',
+      featureIndex: 2,
+      coordinatePath: [],
+    },
+  ]);
+});
+
+test('walks nested GeometryCollections without losing coordinate paths', () => {
+  const input = {
+    type: 'Feature',
+    properties: {},
+    geometry: {
+      type: 'GeometryCollection',
+      geometries: [{
+        type: 'GeometryCollection',
+        geometries: [
+          { type: 'Point', coordinates: [0, 0] },
+          { type: 'LineString', coordinates: [[1, 1, 4], [1, 1, 4]] },
+          { type: 'Point', coordinates: [181, 2] },
+        ],
+      }],
+    },
+  };
+
+  const report = inspectGeoJSON(input);
+
+  assert.deepEqual(report.diagnostics, [
+    {
+      code: 'duplicate-consecutive-position',
+      severity: 'warning',
+      message: 'The same full coordinate tuple appears in two consecutive positions.',
+      featureIndex: 0,
+      coordinatePath: [0, 1, 1],
+    },
+    {
+      code: 'mixed-coordinate-dimensions',
+      severity: 'warning',
+      message: 'This document contains both XY and XYZ coordinate positions.',
+      featureIndex: 0,
+      coordinatePath: [0, 1, 0],
+    },
+    {
+      code: 'coordinate-out-of-range',
+      severity: 'error',
+      message: 'Longitude must be within -180 to 180 degrees and latitude within -90 to 90 degrees.',
+      featureIndex: 0,
+      coordinatePath: [0, 2],
+    },
+  ]);
+});
+
+test('does not emit partial coordinate findings when structural validation fails', () => {
+  const malformed = {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'LineString', coordinates: [[0, 0]] },
+      },
+      {
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'Point', coordinates: [181, 0] },
+      },
+    ],
+  };
+
+  assert.doesNotThrow(() => inspectGeoJSON(malformed));
+  const report = inspectGeoJSON(malformed);
+
+  assert.equal(report.valid, false);
+  assert.ok(report.diagnostics.length > 0);
+  assert.ok(report.diagnostics.every(({ code }) => code === 'invalid-geojson'));
 });
 
 test('rejects invalid members and metadata inside nested GeometryCollections', () => {

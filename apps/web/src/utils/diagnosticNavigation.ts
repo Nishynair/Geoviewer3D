@@ -29,8 +29,10 @@ export interface DiagnosticFeatureFocusActions<T> {
 export type FeaturePropertiesReader<T> = (entity: T) => Record<string, unknown> | undefined;
 
 export interface DiagnosticReference {
+  code?: string;
   featureId?: string | number;
   featureIndex?: number;
+  coordinatePath?: number[];
   sourceLocation?: SourceTextLocation;
 }
 

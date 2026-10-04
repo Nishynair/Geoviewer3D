@@ -20,8 +20,7 @@ import {
   getGeoJSONForViewer,
   type SpatialDocument,
 } from './spatialDocument';
-import { getGeoJSONFeature, resolveDiagnosticFeatureIndex } from './utils/diagnosticNavigation';
-import { resolveDiagnosticSourceLocation } from './utils/featureSourceLocation';
+import { getGeoJSONFeature } from './utils/diagnosticNavigation';
 import {
   createFeatureSelectionController,
   type WorkspaceSelection,
@@ -75,21 +74,7 @@ function App() {
   });
 
   const handleSelectDiagnostic = (diagnostic: Diagnostic) => {
-    selectionSequence.current += 1;
-    const featureIndex = resolveDiagnosticFeatureIndex(document.parsed, diagnostic);
-    const sourceLocation = resolveDiagnosticSourceLocation(
-      document.source.rawText,
-      document.parsed,
-      diagnostic,
-    );
-    setSelection({
-      document,
-      featureIndex,
-      diagnostic,
-      sourceLocation,
-      requestId: selectionSequence.current,
-    });
-    if (sourceLocation) setRightPanel('editor');
+    featureSelectionController.selectDiagnostic(diagnostic);
   };
 
   const handleFeatureSelect = (featureIndex: number) => {
