@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { inspectGeoJSON, measureGeoJSONGeometry } from 'spatial-doctor';
+import { inspectGeoJSON, measureGeoJSONGeometry } from '@nish-andran/spatial-doctor';
 import { CURATED_DEMOS, CURATED_EXAMPLES } from '../src/curatedExamples.ts';
 import { createSpatialDocument, getGeoJSONForViewer } from '../src/spatialDocument.ts';
 import { getGeoJSONFeature } from '../src/utils/diagnosticNavigation.ts';
