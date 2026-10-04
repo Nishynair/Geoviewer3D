@@ -7,7 +7,6 @@ import { useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { TEXT_BOX_MIN_WIDTH, TEXT_BOX_MAX_WIDTH } from './consts';
 import GeojsonEditor from './components/GeojsonEditor';
-import KlccFlat from './assets/sampleJSON/klcc-flat.json';
 import Viewer3D from './components/Viewer';
 import MenuBar from './components/MenuBar';
 import MinimizeMaximizeButton from './components/Buttons/MinimizeMaximizeButton';
@@ -48,7 +47,7 @@ import {
 } from './utils/geoJsonRepairs';
 import { createEditorTextChangeHandler } from './utils/editorChangeGuard';
 import { resolveMapFeatureSelection } from './utils/featureSourceLocation';
-import type { CuratedDemo } from './curatedExamples';
+import { CLEAN_STARTER_DEMO, type CuratedDemo } from './curatedExamples';
 
 interface TerrainComparisonDisplay {
   geojson: GeoJsonValue;
@@ -58,7 +57,7 @@ interface TerrainComparisonDisplay {
 
 function App() {
   const [document, setDocument] = useState<SpatialDocument>(() =>
-    createSpatialDocument('klcc-flat.json', JSON.stringify(KlccFlat, null, 2), inspectGeoJSON),
+    createSpatialDocument(CLEAN_STARTER_DEMO.fileName, CLEAN_STARTER_DEMO.rawText, inspectGeoJSON),
   );
   const [viewerDocument, setViewerDocument] = useState(document);
   const [selection, setSelection] = useState<WorkspaceSelection | null>(null);
@@ -80,7 +79,7 @@ function App() {
     autoRotate: boolean;
     colorByElevation: boolean;
     verticalExaggeration: number;
-  } | null>(null);
+  } | null>(() => ({ requestId: 0, ...CLEAN_STARTER_DEMO.presentation }));
   const viewerPresentationSequence = useRef(0);
   const [repairPreview, setRepairPreview] = useState<GeoJSONRepairPreview | null>(null);
   const [appliedRepair, setAppliedRepair] = useState<AppliedGeoJSONRepair | null>(null);

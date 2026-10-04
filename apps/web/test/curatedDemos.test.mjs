@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import { inspectGeoJSON, measureGeoJSONGeometry } from 'spatial-doctor';
-import { CURATED_DEMOS, CURATED_EXAMPLES } from '../src/curatedExamples.ts';
+import KlccFlat from '../src/assets/sampleJSON/klcc-flat.json' with { type: 'json' };
+import { CLEAN_STARTER_DEMO, CURATED_DEMOS, CURATED_EXAMPLES } from '../src/curatedExamples.ts';
 import { createSpatialDocument, getGeoJSONForViewer } from '../src/spatialDocument.ts';
 import { getGeoJSONFeature } from '../src/utils/diagnosticNavigation.ts';
 
@@ -99,11 +100,17 @@ test('ElevationTerrain contains coordinate Z facts and line profiles for the exi
 });
 
 test('new demos are one-click curated entries without removing the established examples', () => {
+  assert.equal(CLEAN_STARTER_DEMO.name, 'Clean3DBuildings');
   assert.deepEqual(CURATED_EXAMPLES.map(({ name }) => name), [
     'Clean3DBuildings.geojson',
     'BrokenGeometry.geojson',
     'ElevationTerrain.geojson',
+    'klcc-flat.json',
     'open-ring-repair.geojson',
     'native-place.jsonfg',
   ]);
+  assert.equal(
+    CURATED_EXAMPLES.find(({ name }) => name === 'klcc-flat.json')?.rawText,
+    JSON.stringify(KlccFlat, null, 2),
+  );
 });

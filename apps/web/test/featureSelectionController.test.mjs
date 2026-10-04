@@ -323,7 +323,7 @@ test('precision warnings navigate to the valid feature while leaving it viewer e
   const action = findElementWithActionText(inspector, 'Show feature and source');
 
   assert.match(markup, /1 finding: 1 warning/);
-  assert.match(markup, /High coordinate precision/);
+  assert.match(markup, /Coordinate precision heuristic/);
   assert.match(markup, /does not establish accuracy or recover the original JSON text/);
   assert.match(markup, /numeric precision heuristic above 15 significant digits/);
   assert.notEqual(action, null);

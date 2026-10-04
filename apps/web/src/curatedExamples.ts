@@ -1,4 +1,5 @@
 import NativePlace from './assets/sampleJSON/native-place.json';
+import KlccFlat from './assets/sampleJSON/klcc-flat.json';
 import OpenRingRepair from './assets/sampleJSON/open-ring-repair.json';
 import Clean3DBuildings from './assets/sampleJSON/clean-3d-buildings.json';
 import BrokenGeometry from './assets/sampleJSON/broken-geometry.json';
@@ -27,19 +28,21 @@ export interface CuratedExample {
   demo?: CuratedDemo;
 }
 
-export const CURATED_DEMOS: readonly CuratedDemo[] = [
-  {
-    name: 'Clean3DBuildings',
-    fileName: 'Clean3DBuildings.geojson',
-    rawText: JSON.stringify(Clean3DBuildings, null, 2),
-    description: 'Valid XYZ building forms with varying Z values.',
-    initialFeatureIndex: null,
-    presentation: {
-      autoRotate: false,
-      colorByElevation: true,
-      verticalExaggeration: 1.5,
-    },
+export const CLEAN_STARTER_DEMO: CuratedDemo = {
+  name: 'Clean3DBuildings',
+  fileName: 'Clean3DBuildings.geojson',
+  rawText: JSON.stringify(Clean3DBuildings, null, 2),
+  description: 'Valid XYZ building forms with varying Z values.',
+  initialFeatureIndex: null,
+  presentation: {
+    autoRotate: false,
+    colorByElevation: true,
+    verticalExaggeration: 1.5,
   },
+};
+
+export const CURATED_DEMOS: readonly CuratedDemo[] = [
+  CLEAN_STARTER_DEMO,
   {
     name: 'BrokenGeometry',
     fileName: 'BrokenGeometry.geojson',
@@ -72,6 +75,10 @@ export const CURATED_EXAMPLES: readonly CuratedExample[] = [
     rawText: demo.rawText,
     demo,
   })),
+  {
+    name: 'klcc-flat.json',
+    rawText: JSON.stringify(KlccFlat, null, 2),
+  },
   {
     name: 'open-ring-repair.geojson',
     rawText: JSON.stringify(OpenRingRepair, null, 2),

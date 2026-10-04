@@ -275,6 +275,59 @@ describe('InspectorPanel', () => {
     expect(markup).toContain('Dimensions XYZ');
     expect(markup).toContain('Coordinate tuples 2');
     expect(markup).toContain('Z range -4 to 18');
+    expect(markup).toContain('Z range uses only the third coordinate ordinate; no altitude or vertical datum is inferred.');
+  });
+
+  it('shows recursive geometry totals and nested geometry counts from the report', () => {
+    const markup = textContent(renderDocument(JSON.stringify({
+      type: 'Feature',
+      properties: {},
+      geometry: {
+        type: 'GeometryCollection',
+        geometries: [
+          { type: 'Point', coordinates: [12, -5, 8] },
+          {
+            type: 'GeometryCollection',
+            geometries: [{ type: 'LineString', coordinates: [[1, 2, -4], [3, 4, 18]] }],
+          },
+        ],
+      },
+    })));
+
+    expect(markup).toContain('Recursive geometry count 4');
+    expect(markup).toContain('GeometryCollection 2');
+    expect(markup).toContain('LineString 1');
+    expect(markup).toContain('Point 1');
+    expect(markup).toContain('Coordinate tuples 3');
+    expect(markup).toContain('X 1 to 12');
+    expect(markup).toContain('Y -5 to 4');
+    expect(markup).toContain('Z range -4 to 18');
+  });
+
+  it('keeps repeated findings bounded while preserving access to every actual location', () => {
+    const rawText = JSON.stringify({
+      type: 'FeatureCollection',
+      features: Array.from({ length: 12 }, (_, index) => ({
+        type: 'Feature',
+        properties: { index },
+        geometry: { type: 'Point', coordinates: [101.7110640441606 + index * 0.00001, 3.156344328317985] },
+      })),
+    });
+    const document = createSpatialDocument('precise-points.geojson', rawText, inspectGeoJSON);
+    if (document.report?.valid !== true) throw new Error('Expected valid coordinates with precision warnings.');
+    const findingCount = document.report.diagnostics.length;
+    const markup = renderToStaticMarkup(
+      <InspectorPanel document={document} onSelectDiagnostic={() => undefined} />,
+    );
+
+    expect(findingCount).toBeGreaterThan(5);
+    expect(textContent(markup)).toContain(`${findingCount} findings:`);
+    expect(textContent(markup)).toContain('Coordinate precision heuristic');
+    expect(textContent(markup)).toContain(`Show ${findingCount - 1} more locations`);
+    expect(markup.split('<details')[0]?.match(/role="alert"/g)?.length).toBe(1);
+    expect(markup.match(/role="alert"/g)?.length).toBe(findingCount);
+    expect(markup).toContain('<details');
+    expect(markup).not.toContain('<details open');
   });
 
   it('explains mixed dimensions without marking the report invalid', () => {
