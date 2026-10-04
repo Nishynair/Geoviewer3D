@@ -1,7 +1,8 @@
 import type { Diagnostic } from 'spatial-doctor';
 import type { SpatialDocument } from '../spatialDocument';
 import type { SourceTextLocation } from './diagnosticNavigation';
-import { resolveMapFeatureSelection } from './featureSourceLocation';
+import { resolveDiagnosticFeatureIndex } from './diagnosticNavigation';
+import { resolveDiagnosticSourceLocation, resolveMapFeatureSelection } from './featureSourceLocation';
 
 export type WorkspacePanel = 'editor' | 'inspector';
 
@@ -22,6 +23,31 @@ export interface FeatureSelectionEffects {
 
 export function createFeatureSelectionController(effects: FeatureSelectionEffects) {
   return {
+    selectDiagnostic(diagnostic: Diagnostic): WorkspaceSelection {
+      const document = effects.getDocument();
+      const referencedFeatureIndex = resolveDiagnosticFeatureIndex(document.parsed, diagnostic);
+      const featureIsUnsafe = referencedFeatureIndex !== null
+        && document.report?.valid === true
+        && document.report.diagnostics.some((reportedDiagnostic) =>
+          reportedDiagnostic.code === 'coordinate-out-of-range'
+          && resolveDiagnosticFeatureIndex(document.parsed, reportedDiagnostic) === referencedFeatureIndex,
+        );
+      const selection: WorkspaceSelection = {
+        document,
+        featureIndex: featureIsUnsafe ? null : referencedFeatureIndex,
+        diagnostic,
+        sourceLocation: resolveDiagnosticSourceLocation(
+          document.source.rawText,
+          document.parsed,
+          diagnostic,
+        ),
+        requestId: effects.nextRequestId(),
+      };
+      effects.setSelection(selection);
+      if (selection.sourceLocation) effects.setPanel('editor');
+      return selection;
+    },
+
     selectFeatureFromMap(featureIndex: number | null): WorkspaceSelection | null {
       if (featureIndex === null) return null;
       const document = effects.getDocument();

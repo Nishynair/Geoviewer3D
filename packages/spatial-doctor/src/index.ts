@@ -3,11 +3,17 @@ import { check, HintError } from '@placemarkio/check-geojson';
 export type DiagnosticSeverity = 'info' | 'warning' | 'error';
 
 export interface Diagnostic {
-  code: 'invalid-geojson';
+  code:
+    | 'invalid-geojson'
+    | 'duplicate-consecutive-position'
+    | 'mixed-coordinate-dimensions'
+    | 'coordinate-out-of-range';
   severity: DiagnosticSeverity;
   message: string;
   featureId?: string | number;
   featureIndex?: number;
+  /** Zero-based index path from a feature's (or root geometry's) geometry. */
+  coordinatePath?: number[];
   sourceLocation?: {
     /** Zero-based UTF-16 offset in the original source text. */
     start: number;
@@ -642,13 +648,186 @@ function validateWithNestedCollections(input: unknown): void {
 function validReport(
   summary: InspectionSummary,
   coordinates: CoordinateSummary,
+  diagnostics: Diagnostic[],
 ): InspectionReport {
   return {
     valid: true,
     summary,
     coordinates,
-    diagnostics: [],
+    diagnostics,
   };
+}
+
+type CoordinateDiagnosticPosition = {
+  position: number[];
+  feature: JsonObject | null;
+  featureIndex: number | undefined;
+  coordinatePath: number[];
+};
+
+function isDiagnosticPosition(value: unknown): value is number[] {
+  return Array.isArray(value)
+    && value.length >= 2
+    && value.every((ordinate) => typeof ordinate === 'number' && Number.isFinite(ordinate));
+}
+
+function sameCoordinateTuple(left: number[], right: number[]): boolean {
+  return left.length === right.length
+    && left.every((ordinate, index) => ordinate === right[index]);
+}
+
+function coordinateDiagnosticReference(
+  position: CoordinateDiagnosticPosition,
+): Pick<Diagnostic, 'featureId' | 'featureIndex' | 'coordinatePath'> {
+  const reference: Pick<Diagnostic, 'featureId' | 'featureIndex' | 'coordinatePath'> = {
+    coordinatePath: position.coordinatePath,
+  };
+  if (position.featureIndex !== undefined) reference.featureIndex = position.featureIndex;
+  const featureId = position.feature?.id;
+  if (typeof featureId === 'string' || typeof featureId === 'number') {
+    reference.featureId = featureId;
+  }
+  return reference;
+}
+
+function coordinateDiagnostics(input: ValidatedGeoJSON): Diagnostic[] {
+  const duplicates: Diagnostic[] = [];
+  const outOfRange: Diagnostic[] = [];
+  let firstDimension: 'XY' | 'XYZ' | null = null;
+  let mixedDimensionPosition: CoordinateDiagnosticPosition | null = null;
+
+  const inspectPosition = (position: CoordinateDiagnosticPosition): void => {
+    const dimension = position.position.length === 2 ? 'XY' : 'XYZ';
+    if (firstDimension === null) {
+      firstDimension = dimension;
+    } else if (mixedDimensionPosition === null && dimension !== firstDimension) {
+      mixedDimensionPosition = position;
+    }
+
+    const [longitude, latitude] = position.position;
+    if (longitude === undefined || latitude === undefined) return;
+    if (longitude < -180 || longitude > 180 || latitude < -90 || latitude > 90) {
+      outOfRange.push({
+        code: 'coordinate-out-of-range',
+        severity: 'error',
+        message: 'Longitude must be within -180 to 180 degrees and latitude within -90 to 90 degrees.',
+        ...coordinateDiagnosticReference(position),
+      });
+    }
+  };
+
+  const inspectSequence = (
+    values: unknown,
+    path: number[],
+    feature: JsonObject | null,
+    featureIndex: number | undefined,
+  ): void => {
+    if (!Array.isArray(values)) return;
+    for (let index = 0; index < values.length; index += 1) {
+      const value = values[index];
+      if (!isDiagnosticPosition(value)) continue;
+
+      const position: CoordinateDiagnosticPosition = {
+        position: value,
+        feature,
+        featureIndex,
+        coordinatePath: [...path, index],
+      };
+      inspectPosition(position);
+
+      const previous = values[index - 1];
+      if (isDiagnosticPosition(previous) && sameCoordinateTuple(previous, value)) {
+        duplicates.push({
+          code: 'duplicate-consecutive-position',
+          severity: 'warning',
+          message: 'The same full coordinate tuple appears in two consecutive positions.',
+          ...coordinateDiagnosticReference(position),
+        });
+      }
+    }
+  };
+
+  const inspectSinglePosition = (
+    value: unknown,
+    path: number[],
+    feature: JsonObject | null,
+    featureIndex: number | undefined,
+  ): void => {
+    if (!isDiagnosticPosition(value)) return;
+    inspectPosition({
+      position: value,
+      feature,
+      featureIndex,
+      coordinatePath: path,
+    });
+  };
+
+  const inspectGeometry = (
+    geometry: unknown,
+    path: number[],
+    feature: JsonObject | null,
+    featureIndex: number | undefined,
+  ): void => {
+    if (!isObject(geometry)) return;
+    switch (geometry.type) {
+      case 'Point':
+        inspectSinglePosition(geometry.coordinates, path, feature, featureIndex);
+        return;
+      case 'MultiPoint':
+      case 'LineString':
+        inspectSequence(geometry.coordinates, path, feature, featureIndex);
+        return;
+      case 'MultiLineString':
+      case 'Polygon':
+        if (Array.isArray(geometry.coordinates)) {
+          geometry.coordinates.forEach((sequence, index) =>
+            inspectSequence(sequence, [...path, index], feature, featureIndex),
+          );
+        }
+        return;
+      case 'MultiPolygon':
+        if (Array.isArray(geometry.coordinates)) {
+          geometry.coordinates.forEach((polygon, polygonIndex) => {
+            if (!Array.isArray(polygon)) return;
+            polygon.forEach((ring, ringIndex) =>
+              inspectSequence(ring, [...path, polygonIndex, ringIndex], feature, featureIndex),
+            );
+          });
+        }
+        return;
+      case 'GeometryCollection':
+        if (Array.isArray(geometry.geometries)) {
+          geometry.geometries.forEach((child, index) =>
+            inspectGeometry(child, [...path, index], feature, featureIndex),
+          );
+        }
+    }
+  };
+
+  if (input.type === 'FeatureCollection') {
+    input.features.forEach((feature, featureIndex) => {
+      if (feature.geometry !== null) {
+        inspectGeometry(feature.geometry, [], feature as unknown as JsonObject, featureIndex);
+      }
+    });
+  } else if (input.type === 'Feature') {
+    if (input.geometry !== null) {
+      inspectGeometry(input.geometry, [], input as unknown as JsonObject, 0);
+    }
+  } else {
+    inspectGeometry(input, [], null, undefined);
+  }
+
+  const mixedDimension: Diagnostic[] = mixedDimensionPosition === null
+    ? []
+    : [{
+        code: 'mixed-coordinate-dimensions',
+        severity: 'warning',
+        message: 'This document contains both XY and XYZ coordinate positions.',
+        ...coordinateDiagnosticReference(mixedDimensionPosition),
+      }];
+
+  return [...duplicates, ...mixedDimension, ...outOfRange];
 }
 
 function invalidReport(error?: unknown): InspectionReport {
@@ -686,7 +865,11 @@ export function inspectGeoJSON(input: unknown): InspectionReport {
 
     // The validator checks the original root plus each removed GeometryCollection.
     const validatedInput = originalTree as ValidatedGeoJSON;
-    return validReport(summarize(validatedInput), summarizeCoordinates(validatedInput));
+    return validReport(
+      summarize(validatedInput),
+      summarizeCoordinates(validatedInput),
+      coordinateDiagnostics(validatedInput),
+    );
   } catch (error: unknown) {
     return invalidReport(error);
   }

@@ -43,10 +43,18 @@ interface InspectorPanelProps {
   onUndoRepair?: () => void;
 }
 
-const DIAGNOSTIC_DEFINITIONS: Record<Diagnostic['code'], { title: string; message: string }> = {
+const DIAGNOSTIC_DEFINITIONS: Record<Diagnostic['code'], { title: string }> = {
   'invalid-geojson': {
     title: 'Invalid GeoJSON',
-    message: 'This document does not match the required GeoJSON structure.',
+  },
+  'duplicate-consecutive-position': {
+    title: 'Duplicate consecutive positions',
+  },
+  'mixed-coordinate-dimensions': {
+    title: 'Mixed XY and XYZ dimensions',
+  },
+  'coordinate-out-of-range': {
+    title: 'Longitude or latitude out of range',
   },
 };
 
@@ -534,6 +542,7 @@ function SelectedFeatureDetails({
           onSelectDiagnostic={onSelectDiagnostic}
           featureGeoJSON={document.parsed}
           sourceText={document.source.rawText}
+          coordinateChecksRan
         />
       )}
     </Box>
@@ -583,55 +592,121 @@ function DiagnosticList({
   onSelectDiagnostic,
   featureGeoJSON,
   sourceText,
+  coordinateChecksRan = false,
 }: {
   diagnostics: Diagnostic[];
   onSelectDiagnostic?: (diagnostic: Diagnostic) => void;
   featureGeoJSON: GeoJsonValue | null;
   sourceText: string;
+  coordinateChecksRan?: boolean;
 }) {
   if (diagnostics.length === 0) {
     return (
-      <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-        No package diagnostics for this document.
-      </Typography>
+      <Box component="section" aria-labelledby="diagnostics-heading" sx={{ mt: 2 }}>
+        <Typography id="diagnostics-heading" component="h3" variant="subtitle1">
+          Diagnostic findings
+        </Typography>
+        <Typography variant="body2" color="text.secondary" role="status" sx={{ mt: 0.75 }}>
+          {coordinateChecksRan
+            ? 'No findings from the supported checks. This does not establish comprehensive spatial validity.'
+            : 'Coordinate checks could not run because the document did not pass GeoJSON structure validation.'}
+        </Typography>
+      </Box>
     );
   }
 
+  const counts = new Map<string, { code: Diagnostic['code']; severity: Diagnostic['severity']; count: number }>();
+  const severityCounts = new Map<Diagnostic['severity'], number>();
+  for (const diagnostic of diagnostics) {
+    const key = `${diagnostic.code}:${diagnostic.severity}`;
+    const existing = counts.get(key);
+    if (existing) existing.count += 1;
+    else counts.set(key, { code: diagnostic.code, severity: diagnostic.severity, count: 1 });
+    severityCounts.set(diagnostic.severity, (severityCounts.get(diagnostic.severity) ?? 0) + 1);
+  }
+  const severitySummary = (['error', 'warning', 'info'] as const)
+    .flatMap((severity) => {
+      const count = severityCounts.get(severity) ?? 0;
+      return count === 0 ? [] : [`${count} ${severity}${count === 1 ? '' : 's'}`];
+    })
+    .join(', ');
+
   return (
-    <Box component="ul" aria-label="Inspection diagnostics" sx={{ listStyle: 'none', p: 0, m: 0 }}>
-      {diagnostics.map((diagnostic, index) => {
-        const definition = DIAGNOSTIC_DEFINITIONS[diagnostic.code];
-        const hasFeature = hasDiagnosticFeatureReference(diagnostic, featureGeoJSON);
-        const hasSource = resolveDiagnosticSourceLocation(sourceText, featureGeoJSON, diagnostic) !== null;
-        return (
-          <Box component="li" key={`${diagnostic.code}-${index}`} sx={{ mt: 1.5 }}>
-            <Alert severity={diagnostic.severity}>
-              <Typography component="h3" variant="subtitle1">
-                {definition.title}
-              </Typography>
-              <Typography component="p" variant="body2" sx={{ mb: 0, mt: 0.5 }}>
-                {definition.message}
-              </Typography>
-              <Typography component="code" variant="caption" sx={{ display: 'block', mt: 0.75 }}>
-                {diagnostic.code} · {diagnostic.severity}
-              </Typography>
-              {onSelectDiagnostic && (hasFeature || hasSource) && (
-                <Button
-                  size="small"
-                  sx={{ mt: 1 }}
-                  onClick={() => onSelectDiagnostic(diagnostic)}
-                >
-                  {hasSource
-                    ? hasFeature
-                      ? 'Show feature and source'
-                      : 'Show source'
-                    : 'Show feature'}
-                </Button>
-              )}
-            </Alert>
+    <Box component="section" aria-labelledby="diagnostics-heading" sx={{ mt: 2 }}>
+      <Typography id="diagnostics-heading" component="h3" variant="subtitle1">
+        Diagnostic findings
+      </Typography>
+      <Typography variant="body2" color="text.secondary" role="status" sx={{ mt: 0.75 }}>
+        {diagnostics.length} {diagnostics.length === 1 ? 'finding' : 'findings'}: {severitySummary}.
+      </Typography>
+      <Box component="ul" aria-label="Diagnostic counts" sx={{ listStyle: 'none', p: 0, m: 0, mt: 0.5 }}>
+        {[...counts.values()].map(({ code, severity, count }) => (
+          <Box component="li" key={`${code}:${severity}`} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.25 }}>
+            <Typography variant="body2">{DIAGNOSTIC_DEFINITIONS[code].title}</Typography>
+            <Typography variant="body2" color="text.secondary">{count} {severity}{count === 1 ? '' : 's'}</Typography>
           </Box>
-        );
-      })}
+        ))}
+      </Box>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
+        {coordinateChecksRan
+          ? 'Supported coordinate checks cover repeated adjacent full tuples, XY/XYZ dimensions, and longitude/latitude limits. They do not establish comprehensive spatial validity.'
+          : 'The GeoJSON structure check failed, so coordinate checks could not run.'}
+      </Typography>
+      <Box component="ul" aria-label="Inspection diagnostics" sx={{ listStyle: 'none', p: 0, m: 0 }}>
+        {diagnostics.map((diagnostic, index) => {
+          const definition = DIAGNOSTIC_DEFINITIONS[diagnostic.code];
+          const featureIndex = resolveDiagnosticFeatureIndex(featureGeoJSON, diagnostic);
+          const hasUnsafeFeature = featureIndex !== null && diagnostics.some((candidate) =>
+            candidate.code === 'coordinate-out-of-range'
+            && resolveDiagnosticFeatureIndex(featureGeoJSON, candidate) === featureIndex,
+          );
+          const hasFeature = hasDiagnosticFeatureReference(diagnostic, featureGeoJSON) && !hasUnsafeFeature;
+          const hasSource = resolveDiagnosticSourceLocation(sourceText, featureGeoJSON, diagnostic) !== null;
+          return (
+            <Box component="li" key={`${diagnostic.code}-${index}`} sx={{ mt: 1.5 }}>
+              <Alert severity={diagnostic.severity}>
+                <Typography component="h4" variant="subtitle1">
+                  {definition.title}
+                </Typography>
+                <Typography component="p" variant="body2" sx={{ mb: 0, mt: 0.5 }}>
+                  {diagnostic.message}
+                </Typography>
+                {hasUnsafeFeature && (
+                  <Typography component="p" variant="body2" sx={{ mb: 0, mt: 0.5 }}>
+                    This feature's geometry contains an out-of-range position and is omitted from the globe.
+                  </Typography>
+                )}
+                {diagnostic.code === 'coordinate-out-of-range' && featureIndex === null && (
+                  <Typography component="p" variant="body2" sx={{ mb: 0, mt: 0.5 }}>
+                    Geometry containing out-of-range coordinates is omitted from the globe.
+                  </Typography>
+                )}
+                {diagnostic.coordinatePath && (
+                  <Typography component="p" variant="caption" sx={{ mb: 0, mt: 0.5 }}>
+                    Coordinate path [{diagnostic.coordinatePath.join(', ')}] (zero-based within the geometry)
+                  </Typography>
+                )}
+                <Typography component="code" variant="caption" sx={{ display: 'block', mt: 0.75 }}>
+                  {diagnostic.code} · {diagnostic.severity}
+                </Typography>
+                {onSelectDiagnostic && (hasFeature || hasSource) && (
+                  <Button
+                    size="small"
+                    sx={{ mt: 1 }}
+                    onClick={() => onSelectDiagnostic(diagnostic)}
+                  >
+                    {hasSource
+                      ? hasFeature
+                        ? 'Show feature and source'
+                        : 'Show source'
+                      : 'Show feature'}
+                  </Button>
+                )}
+              </Alert>
+            </Box>
+          );
+        })}
+      </Box>
     </Box>
   );
 }
@@ -713,6 +788,7 @@ export default function InspectorPanel({
             onSelectDiagnostic={onSelectDiagnostic}
             featureGeoJSON={null}
             sourceText={document.source.rawText}
+            coordinateChecksRan={false}
           />
         )}
         <JsonFgDetails info={document.jsonFg} />
@@ -741,6 +817,7 @@ export default function InspectorPanel({
           onSelectDiagnostic={onSelectDiagnostic}
           featureGeoJSON={null}
           sourceText={document.source.rawText}
+          coordinateChecksRan={false}
         />
         <GeometryRepairs
           preview={repairPreview}
@@ -798,12 +875,6 @@ export default function InspectorPanel({
       />
       )}
 
-      {coordinates.dimensions === 'mixed' && (
-        <Alert severity="warning" sx={{ mb: 1.5 }}>
-          This valid document contains both XY and XYZ coordinate tuples.
-        </Alert>
-      )}
-
       <Box component="dl" sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', columnGap: 2, m: 0 }}>
         <Metric label="Feature count" value={summary.featureCount} />
         <Metric label="Dimensions" value={dimensionLabel} />
@@ -847,6 +918,7 @@ export default function InspectorPanel({
         onSelectDiagnostic={onSelectDiagnostic}
         featureGeoJSON={document.parsed}
         sourceText={document.source.rawText}
+        coordinateChecksRan
       />
 
       <GeometryRepairs
