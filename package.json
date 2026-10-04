@@ -8,11 +8,11 @@
     "packages/spatial-doctor"
   ],
   "scripts": {
-    "dev": "npm run dev --workspace @geoviewer3d/web --",
-    "test": "vitest run",
-    "build": "npm run build --workspace @geoviewer3d/web --",
+    "dev": "npm run build --workspace @nish-andran/spatial-doctor && npm run dev --workspace @geoviewer3d/web --",
+    "test": "npm run build --workspace @nish-andran/spatial-doctor && vitest run",
+    "build": "npm run build --workspace @nish-andran/spatial-doctor && npm run build --workspace @geoviewer3d/web --",
     "lint": "eslint .",
-    "typecheck": "npm run typecheck --workspace @geoviewer3d/web -- && npm run typecheck --workspace spatial-doctor --",
+    "typecheck": "npm run build --workspace @nish-andran/spatial-doctor && npm run typecheck --workspace @geoviewer3d/web -- && npm run typecheck --workspace @nish-andran/spatial-doctor --",
     "preview": "npm run preview --workspace @geoviewer3d/web --"
   },
   "devDependencies": {

@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { inspectGeoJSON } from 'spatial-doctor';
+import { inspectGeoJSON } from '@nish-andran/spatial-doctor';
 import InspectorPanel from '../src/components/InspectorPanel';
 import { createSpatialDocument } from '../src/spatialDocument';
 import { previewGeoJSONRepair } from '../src/utils/geoJsonRepairs';

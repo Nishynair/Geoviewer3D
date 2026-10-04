@@ -1,5 +1,5 @@
 import type { GeoJSON as GeoJSONValue } from 'geojson';
-import { measureGeoJSONGeometry } from 'spatial-doctor';
+import { measureGeoJSONGeometry } from '@nish-andran/spatial-doctor';
 
 export interface ElevationRange {
   min: number;

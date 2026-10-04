@@ -1,12 +1,114 @@
-# spatial-doctor
+# @nish-andran/spatial-doctor
+
+`@nish-andran/spatial-doctor` is a framework-independent GeoJSON inspector and
+geometry measurement library. It provides two runtime functions,
+`inspectGeoJSON(input)` and `measureGeoJSONGeometry(input)`, with TypeScript
+declarations for their result types. It does not depend on a UI or viewer.
+Import it as an ECMAScript module in Node.js 20 or later, or through a modern
+browser bundler.
 
 `inspectGeoJSON(input)` accepts an already-parsed JavaScript value. It does not
 parse editor or file text. A valid report contains `valid: true`, a `summary`,
 `coordinates` summary, and a diagnostics array. An invalid report contains
 `valid: false`, `summary: null`, `coordinates: null`, and stable diagnostics.
-An invalid report may include a source-addressable open-ring finding when that
-ring's coordinate tuples can be read safely. Such a finding does not make the
-document valid or viewer-eligible.
+An invalid report may include an open-ring finding with a feature or coordinate
+reference when that ring's coordinate tuples can be read safely. Such a finding
+does not make the document valid or viewer-eligible.
+
+## Install
+
+```sh
+npm install @nish-andran/spatial-doctor
+```
+
+## JavaScript example
+
+Save as `example.mjs` and run with `node example.mjs`:
+
+```js
+import assert from 'node:assert/strict';
+import {
+  inspectGeoJSON,
+  measureGeoJSONGeometry,
+} from '@nish-andran/spatial-doctor';
+
+const line = {
+  type: 'LineString',
+  coordinates: [
+    [103.8198, 1.3521, 15.2],
+    [103.8208, 1.3531, 15.8],
+  ],
+};
+const document = {
+  type: 'FeatureCollection',
+  features: [
+    { type: 'Feature', properties: { name: 'Example' }, geometry: line },
+  ],
+};
+
+const report = inspectGeoJSON(document);
+assert.equal(report.valid, true);
+if (!report.valid) throw new Error('Expected this GeoJSON to be valid.');
+assert.deepEqual(report.coordinates.zRange, { min: 15.2, max: 15.8 });
+assert.deepEqual(inspectGeoJSON(document), report);
+
+const measurements = measureGeoJSONGeometry(line);
+assert.ok(measurements);
+assert.equal(measurements.geometryType, 'LineString');
+assert.equal(measurements.coordinateCount, 2);
+assert.ok(measurements.horizontalLength.meters !== null);
+assert.ok(measurements.threeDimensionalLength.meters !== null);
+
+console.log({ report, measurements });
+```
+
+## TypeScript example
+
+The package includes declarations for the report, diagnostics, coordinate
+summary, and measurement result. Save as `example.ts` in a TypeScript project
+using Node's `NodeNext` module resolution:
+
+```ts
+import {
+  inspectGeoJSON,
+  measureGeoJSONGeometry,
+} from '@nish-andran/spatial-doctor';
+import type {
+  Diagnostic,
+  GeometryMeasurementSummary,
+  InspectionReport,
+} from '@nish-andran/spatial-doctor';
+
+const line = {
+  type: 'LineString',
+  coordinates: [
+    [103.8198, 1.3521, 15.2],
+    [103.8208, 1.3531, 15.8],
+  ],
+};
+const document: unknown = {
+  type: 'FeatureCollection',
+  features: [
+    { type: 'Feature', properties: { name: 'Example' }, geometry: line },
+  ],
+};
+
+const report: InspectionReport = inspectGeoJSON(document);
+const diagnostics: Diagnostic[] = report.diagnostics;
+const measurements: GeometryMeasurementSummary | null =
+  measureGeoJSONGeometry(line);
+
+if (report.valid) {
+  console.log(report.coordinates.zRange);
+}
+console.log(diagnostics.length, measurements?.horizontalLength.meters);
+```
+
+The API is deterministic for the same input value. `inspectGeoJSON` describes
+the input's structure and coordinate checks; its `valid` flag indicates whether
+the GeoJSON structure validator accepted the input. Invalid reports keep the
+summary and coordinate summary unavailable. The selected-geometry function
+returns `null` for invalid input or a Feature/FeatureCollection root.
 
 ## Feature and geometry counts
 
@@ -65,13 +167,15 @@ range, its measurement is unavailable instead of returning `Infinity` or
 
 ## Diagnostic navigation references
 
-Diagnostics may carry a `featureId`, a zero-based `featureIndex` into a
-FeatureCollection (or index `0` for a root Feature), and a `sourceLocation`.
-The source location is a half-open range of zero-based UTF-16 offsets into the
-original text. Feature-scoped coordinate diagnostics also carry a
-`coordinatePath` through geometry coordinate arrays and nested
-`GeometryCollection.geometries` arrays. A bare Geometry has no Feature to
-reference.
+`inspectGeoJSON` analyzes an already-parsed value and does not receive the
+original source text, so it does not emit source offsets. Its diagnostics may
+carry a `featureId`, a zero-based `featureIndex` into a FeatureCollection (or
+index `0` for a root Feature), and a `coordinatePath` through geometry
+coordinate arrays and nested `GeometryCollection.geometries` arrays. A bare
+Geometry has no Feature to reference. The exported `Diagnostic` type includes
+an optional `sourceLocation` field for consumers that resolve a diagnostic
+against their own source text; when present, it is a half-open range of
+zero-based UTF-16 offsets into that text.
 
 The supported diagnostic codes are:
 

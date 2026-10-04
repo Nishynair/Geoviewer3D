@@ -5,7 +5,7 @@ import {
   getGeoJSONForViewer,
 } from '../src/spatialDocument.ts';
 import { addAndFlyToIfCurrent } from '../src/utils/addViewerDataSource.ts';
-import { inspectGeoJSON } from 'spatial-doctor';
+import { inspectGeoJSON } from '@nish-andran/spatial-doctor';
 
 function createSpatialDocument(name, rawText, inspect = inspectGeoJSON) {
   return createSpatialDocumentImpl(name, rawText, inspect);

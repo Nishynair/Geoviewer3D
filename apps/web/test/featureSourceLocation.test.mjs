@@ -6,7 +6,7 @@ import {
   resolveDiagnosticSourceLocation,
 } from '../src/utils/featureSourceLocation.ts';
 import { createSpatialDocument } from '../src/spatialDocument.ts';
-import { inspectGeoJSON } from 'spatial-doctor';
+import { inspectGeoJSON } from '@nish-andran/spatial-doctor';
 
 test('maps an idless FeatureCollection member through nested JSON and escaped strings', () => {
   const rawText = `{

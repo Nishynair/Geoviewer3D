@@ -1,6 +1,6 @@
 import { check, HintError, type HintIssue } from '@placemarkio/check-geojson';
 import type { GeoJSON as GeoJsonValue } from 'geojson';
-import type { InspectionReport } from 'spatial-doctor';
+import type { InspectionReport } from '@nish-andran/spatial-doctor';
 import {
   emptyJsonFgInfo,
   hasExplicitJsonFgSignature,

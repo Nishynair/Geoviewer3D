@@ -1,4 +1,4 @@
-import { inspectGeoJSON, type InspectionReport } from 'spatial-doctor';
+import { inspectGeoJSON, type InspectionReport } from '@nish-andran/spatial-doctor';
 
 export type GeoJSONRepairKind =
   | 'remove-duplicate-vertices'

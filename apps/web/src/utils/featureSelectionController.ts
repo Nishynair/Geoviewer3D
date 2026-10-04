@@ -1,4 +1,4 @@
-import type { Diagnostic } from 'spatial-doctor';
+import type { Diagnostic } from '@nish-andran/spatial-doctor';
 import type { SpatialDocument } from '../spatialDocument';
 import type { SourceTextLocation } from './diagnosticNavigation';
 import { resolveDiagnosticFeatureIndex } from './diagnosticNavigation';

@@ -13,7 +13,7 @@ import {
   measureGeoJSONGeometry,
   type Diagnostic,
   type DistanceSummary,
-} from 'spatial-doctor';
+} from '@nish-andran/spatial-doctor';
 import type { Geometry, GeoJSON as GeoJsonValue } from 'geojson';
 import type { SpatialDocument } from '../spatialDocument';
 import type { JsonFgInfo } from '../utils/jsonFg';
