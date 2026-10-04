@@ -30,10 +30,18 @@ interface Viewer3DProps {
   geojson: GeoJsonValue | null;
   selectedFeatureIndex: number | null;
   navigationRequestId: number;
+  presentationRequest?: ViewerPresentationRequest | null;
   onFeatureSelect?: (featureIndex: number) => void;
   terrainComparisonRequest?: TerrainComparisonRequest | null;
   onTerrainComparisonResult?: (requestId: number, result: TerrainComparisonResult) => void;
   sx?: SxProps<Theme>;
+}
+
+interface ViewerPresentationRequest {
+  requestId: number;
+  autoRotate: boolean;
+  colorByElevation: boolean;
+  verticalExaggeration: number;
 }
 
 interface LoadedDataSource {
@@ -51,6 +59,7 @@ export default function Viewer3D({
   geojson,
   selectedFeatureIndex,
   navigationRequestId,
+  presentationRequest = null,
   onFeatureSelect,
   terrainComparisonRequest = null,
   onTerrainComparisonResult,
@@ -82,6 +91,14 @@ export default function Viewer3D({
   terrainRequestRef.current = terrainComparisonRequest;
   onTerrainComparisonResultRef.current = onTerrainComparisonResult;
   currentGeoJSONRef.current = geojson;
+
+  useEffect(() => {
+    if (!presentationRequest) return;
+    setIsRotating(presentationRequest.autoRotate);
+    setColorByElevation(presentationRequest.colorByElevation);
+    setVerticalExaggeration(normalizeVerticalExaggeration(presentationRequest.verticalExaggeration));
+    setExaggerationError(null);
+  }, [presentationRequest]);
 
   useEffect(() => {
     const container = containerRef.current;

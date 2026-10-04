@@ -9,14 +9,16 @@ import DownloadButton from "./Buttons/DownloadButton";
 import CopyButton from "./Buttons/CopyButton";
 import InfoButton from "./Buttons/InfoButton";
 import type { SpatialDocument } from "../spatialDocument";
+import type { CuratedDemo } from "../curatedExamples";
 
 interface MenuBarProps {
   document: SpatialDocument;
   onFileLoad: (name: string, rawText: string) => void;
+  onDemoLoad: (demo: CuratedDemo) => void;
   onOpenFile: () => void;
 }
 
-export default function MenuBar({ document, onFileLoad, onOpenFile }: MenuBarProps) {
+export default function MenuBar({ document, onFileLoad, onDemoLoad, onOpenFile }: MenuBarProps) {
   return (
     <AppBar position="static" >
       <Toolbar
@@ -44,7 +46,7 @@ export default function MenuBar({ document, onFileLoad, onOpenFile }: MenuBarPro
         >
           Geoviewer3D
         </Typography>
-        <ExamplesButton onFileLoad={onFileLoad}/>
+        <ExamplesButton onFileLoad={onFileLoad} onDemoLoad={onDemoLoad}/>
         <UploadButton onOpenFile={onOpenFile}/>
         <DownloadButton text={document.source.rawText} name={document.source.name}/>
         <CopyButton text={document.source.rawText}/>

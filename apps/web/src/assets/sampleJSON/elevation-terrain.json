@@ -1,0 +1,44 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "lower-segment",
+      "properties": {
+        "name": "Illustrative lower segment",
+        "demo": "ElevationTerrain",
+        "note": "Synthetic coordinates and Z values for demonstrating profiles and terrain comparison."
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[101.366, 4.471, 1180], [101.367, 4.472, 1195], [101.368, 4.473, 1210]]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "middle-segment",
+      "properties": {
+        "name": "Illustrative middle segment",
+        "demo": "ElevationTerrain",
+        "note": "Synthetic coordinates and Z values for demonstrating profiles and terrain comparison."
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[101.366, 4.476, 1250], [101.367, 4.477, 1275], [101.368, 4.478, 1300]]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "upper-segment",
+      "properties": {
+        "name": "Illustrative upper segment",
+        "demo": "ElevationTerrain",
+        "note": "Synthetic coordinates and Z values for demonstrating profiles and terrain comparison."
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[101.366, 4.481, 1340], [101.367, 4.482, 1370], [101.368, 4.483, 1400]]
+      }
+    }
+  ]
+}

@@ -3,15 +3,18 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
+import { CURATED_DEMOS, type CuratedDemo } from '../curatedExamples';
 
 interface StartingExperienceProps {
   onOpenFile: () => void;
+  onDemoSelect: (demo: CuratedDemo) => void;
   isReadingFile?: boolean;
   errorMessage?: string | null;
 }
 
 export default function StartingExperience({
   onOpenFile,
+  onDemoSelect,
   isReadingFile = false,
   errorMessage = null,
 }: StartingExperienceProps) {
@@ -47,6 +50,27 @@ export default function StartingExperience({
         >
           Choose a file
         </Button>
+      </Box>
+
+      <Box sx={{ mt: 1.5 }}>
+        <Typography variant="body2" component="p" sx={{ mb: 0.75 }}>
+          Or try a demo
+        </Typography>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+          {CURATED_DEMOS.map((demo) => (
+            <Button
+              key={demo.name}
+              type="button"
+              size="small"
+              variant="outlined"
+              onClick={() => onDemoSelect(demo)}
+              title={demo.description}
+              aria-label={`Open ${demo.name} demo`}
+            >
+              {demo.name}
+            </Button>
+          ))}
+        </Box>
       </Box>
 
       <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 0, mt: 1 }}>
