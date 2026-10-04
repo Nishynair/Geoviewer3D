@@ -125,6 +125,23 @@ function textContent(markup: string): string {
 }
 
 describe('InspectorPanel', () => {
+  it('tells users how to continue with source text the viewer cannot inspect', () => {
+    const syntaxError = textContent(renderDocument('{"type":', 'broken.geojson'));
+    const invalidGeoJSON = textContent(renderDocument(
+      JSON.stringify({ type: 'Circle', coordinates: [1, 2] }),
+      'invalid.geojson',
+    ));
+    const unsupportedJsonFg = textContent(renderDocument(JSON.stringify({
+      type: 'FeatureSequence',
+      conformsTo: ['http://www.opengis.net/spec/json-fg-1/1.0/conf/core'],
+      features: [],
+    }), 'sequence.jsonfg'));
+
+    expect(syntaxError).toContain('Correct the JSON text in the Editor tab');
+    expect(invalidGeoJSON).toContain('Open the Editor tab to edit the source or preview a safe repair below.');
+    expect(unsupportedJsonFg).toContain('Edit the JSON-FG source in the Editor tab or open a supported Feature or FeatureCollection.');
+  });
+
   it('explains the supported JSON-FG geometry view and declared CRS scope', () => {
     const markup = textContent(renderDocument(JSON.stringify({
       type: 'FeatureCollection',
@@ -302,7 +319,7 @@ describe('InspectorPanel', () => {
 
     expect(markup).toContain('broken.geojson');
     expect(markup).toContain('JSON syntax error');
-    expect(markup).toContain('Correct the JSON text to see a GeoJSON overview.');
+    expect(markup).toContain('Correct the JSON text in the Editor tab to see a GeoJSON overview.');
     expect(markup).not.toContain('Invalid GeoJSON');
     expect(markup).not.toContain('Feature count');
     expect(markup).not.toContain('Coordinate tuples');

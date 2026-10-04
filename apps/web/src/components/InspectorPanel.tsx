@@ -669,8 +669,8 @@ export default function InspectorPanel({
           </Typography>
           <Typography component="p" variant="body2" sx={{ mb: 0, mt: 0.5 }}>
             {document.format === 'jsonfg'
-              ? 'The source text could not be parsed as JSON. Correct the JSON text to inspect the JSON-FG document.'
-              : 'The source text could not be parsed as JSON. Correct the JSON text to see a GeoJSON overview.'}
+              ? 'The source text could not be parsed as JSON. Correct the JSON text in the Editor tab to inspect the JSON-FG document.'
+              : 'The source text could not be parsed as JSON. Correct the JSON text in the Editor tab to see a GeoJSON overview.'}
           </Typography>
         </Alert>
         {document.format === 'jsonfg' && <JsonFgDetails info={document.jsonFg} />}
@@ -706,6 +706,11 @@ export default function InspectorPanel({
           <Typography component="p" variant="body2" sx={{ mb: 0, mt: 0.5 }}>
             {document.parseError.message}
           </Typography>
+          <Typography component="p" variant="body2" sx={{ mb: 0, mt: 0.5 }}>
+            {document.parseError.kind === 'unsupported-jsonfg'
+              ? 'Edit the JSON-FG source in the Editor tab or open a supported Feature or FeatureCollection.'
+              : 'Edit the JSON-FG source in the Editor tab to correct its structure.'}
+          </Typography>
         </Alert>
         {document.report?.valid === false && (
           <DiagnosticList
@@ -735,6 +740,9 @@ export default function InspectorPanel({
         </Typography>
         <Typography variant="body2" color="text.secondary">
           The current document is not valid GeoJSON, so its summary metrics are unavailable.
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1, mb: 1 }}>
+          Open the Editor tab to edit the source or preview a safe repair below.
         </Typography>
         <DiagnosticList
           diagnostics={document.report.diagnostics}
