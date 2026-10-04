@@ -1,0 +1,41 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "repeated-position",
+      "properties": {
+        "name": "Line with a repeated position",
+        "demo": "BrokenGeometry"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[101.71, 3.157], [101.71, 3.157], [101.7105, 3.1575]]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "safe-xyz-line",
+      "properties": {
+        "name": "Safe XYZ line",
+        "demo": "BrokenGeometry"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[101.712, 3.157, 42], [101.7125, 3.1575, 48]]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "out-of-range-point",
+      "properties": {
+        "name": "Out-of-range point (source only)",
+        "demo": "BrokenGeometry"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [181, 3.158, 18]
+      }
+    }
+  ]
+}

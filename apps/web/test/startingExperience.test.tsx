@@ -5,12 +5,16 @@ import StartingExperience from '../src/components/StartingExperience';
 describe('StartingExperience', () => {
   it('shows the local-file action, drop instruction, and observed service disclosure', () => {
     const markup = renderToStaticMarkup(
-      <StartingExperience onOpenFile={() => undefined} />,
+      <StartingExperience onOpenFile={() => undefined} onDemoSelect={() => undefined} />,
     );
 
     expect(markup).toContain('Open or drop a spatial file');
     expect(markup).toContain('Choose a file');
     expect(markup).toContain('Drop a GeoJSON or supported JSON-FG file anywhere in the workspace.');
+    expect(markup).toContain('Or try a demo');
+    expect(markup).toContain('Open Clean3DBuildings demo');
+    expect(markup).toContain('Open BrokenGeometry demo');
+    expect(markup).toContain('Open ElevationTerrain demo');
     expect(markup).toContain('Your file is read and inspected in this browser.');
     expect(markup).toContain('Map requests can reveal the area in view:');
     expect(markup).toContain('Comparing a feature with terrain sends its coordinates to Cesium for terrain sampling.');
@@ -21,6 +25,7 @@ describe('StartingExperience', () => {
     const markup = renderToStaticMarkup(
       <StartingExperience
         onOpenFile={() => undefined}
+        onDemoSelect={() => undefined}
         isReadingFile
         errorMessage="The selected file could not be read. Choose another file."
       />,

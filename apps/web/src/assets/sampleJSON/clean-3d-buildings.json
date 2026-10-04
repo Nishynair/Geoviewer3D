@@ -1,0 +1,41 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "form-a",
+      "properties": {
+        "name": "Synthetic building form A",
+        "demo": "Clean3DBuildings"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[101.710, 3.157, 38], [101.7106, 3.157, 38], [101.7106, 3.1576, 38], [101.710, 3.1576, 38], [101.710, 3.157, 38]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "form-b",
+      "properties": {
+        "name": "Synthetic building form B",
+        "demo": "Clean3DBuildings"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[101.7112, 3.157, 74], [101.7118, 3.157, 74], [101.7118, 3.1576, 74], [101.7112, 3.1576, 74], [101.7112, 3.157, 74]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "form-c",
+      "properties": {
+        "name": "Synthetic building form C",
+        "demo": "Clean3DBuildings"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[101.7124, 3.157, 126], [101.713, 3.157, 126], [101.713, 3.1576, 126], [101.7124, 3.1576, 126], [101.7124, 3.157, 126]]]
+      }
+    }
+  ]
+}

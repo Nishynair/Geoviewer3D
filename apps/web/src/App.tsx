@@ -47,6 +47,8 @@ import {
   type GeoJSONRepairPreview,
 } from './utils/geoJsonRepairs';
 import { createEditorTextChangeHandler } from './utils/editorChangeGuard';
+import { resolveMapFeatureSelection } from './utils/featureSourceLocation';
+import type { CuratedDemo } from './curatedExamples';
 
 interface TerrainComparisonDisplay {
   geojson: GeoJsonValue;
@@ -73,6 +75,13 @@ function App() {
   const localFileLoadGuardRef = useRef(createLocalFileLoadGuard());
   const [terrainRequest, setTerrainRequest] = useState<TerrainComparisonRequest | null>(null);
   const [terrainResult, setTerrainResult] = useState<TerrainComparisonDisplay | null>(null);
+  const [viewerPresentationRequest, setViewerPresentationRequest] = useState<{
+    requestId: number;
+    autoRotate: boolean;
+    colorByElevation: boolean;
+    verticalExaggeration: number;
+  } | null>(null);
+  const viewerPresentationSequence = useRef(0);
   const [repairPreview, setRepairPreview] = useState<GeoJSONRepairPreview | null>(null);
   const [appliedRepair, setAppliedRepair] = useState<AppliedGeoJSONRepair | null>(null);
   const currentSourceTextRef = useRef(document.source.rawText);
@@ -194,7 +203,39 @@ function App() {
     setRightPanel('inspector');
     setRepairPreview(null);
     setAppliedRepair(null);
-    setDocument(createSpatialDocument(name, rawText, inspectGeoJSON));
+    const nextDocument = createSpatialDocument(name, rawText, inspectGeoJSON);
+    setDocument(nextDocument);
+    return nextDocument;
+  };
+
+  const handleDemoLoad = (demo: CuratedDemo) => {
+    const demoDocument = handleFileLoad(demo.fileName, demo.rawText);
+    if (
+      demoDocument.parsed !== null
+      && demoDocument.report?.valid === true
+      && demo.initialFeatureIndex !== null
+    ) {
+      const resolved = resolveMapFeatureSelection(
+        demoDocument.source.rawText,
+        demoDocument.parsed,
+        demo.initialFeatureIndex,
+      );
+      if (resolved) {
+        selectionSequence.current += 1;
+        setSelection({
+          document: demoDocument,
+          featureIndex: resolved.featureIndex,
+          diagnostic: null,
+          sourceLocation: resolved.sourceLocation,
+          requestId: selectionSequence.current,
+        });
+      }
+    }
+    viewerPresentationSequence.current += 1;
+    setViewerPresentationRequest({
+      requestId: viewerPresentationSequence.current,
+      ...demo.presentation,
+    });
   };
 
   const handleLocalFileLoad = (name: string, rawText: string) => {
@@ -313,6 +354,7 @@ function App() {
       <MenuBar
         document={document}
         onFileLoad={handleFileLoad}
+        onDemoLoad={handleDemoLoad}
         onOpenFile={openFilePicker}
       />
 
@@ -329,6 +371,7 @@ function App() {
       {!hasStartedWorkspace && (
         <StartingExperience
           onOpenFile={openFilePicker}
+          onDemoSelect={handleDemoLoad}
           isReadingFile={isReadingFile}
           errorMessage={fileReadError}
         />
@@ -383,6 +426,7 @@ function App() {
             onFeatureSelect={viewerDocument === document ? handleFeatureSelect : undefined}
             terrainComparisonRequest={terrainRequestForViewer}
             onTerrainComparisonResult={handleTerrainComparisonResult}
+            presentationRequest={viewerPresentationRequest}
             sx={{
               width: "100%",
               height: "100%",

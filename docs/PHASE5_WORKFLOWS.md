@@ -1,8 +1,8 @@
 # Phase 5 examples
 
-The app starts with `klcc-flat.json`, a valid GeoJSON polygon with XYZ positions. Open the Inspector to review its feature and geometry counts, coordinate dimensions, Z range, and bounds.
+The app starts with `klcc-flat.json`, a valid GeoJSON polygon with XYZ positions. Open the Inspector to review its feature and geometry counts, coordinate dimensions, Z range, and bounds. Before opening a file, choose `Clean3DBuildings`, `BrokenGeometry`, or `ElevationTerrain` in the first-use panel to open a focused demo in one selection. The demos are synthetic and their provenance, license, modifications, and purpose are recorded in [Built-in demo data](DEMO_DATA.md).
 
-Use **Examples** in the top bar to load two more samples:
+Use **Examples** in the top bar to load the demos or the two additional samples:
 
 - `open-ring-repair.geojson` is intentionally invalid because its polygon ring is open. In the Inspector, preview **Close safe unclosed polygon rings**, inspect the proposed output, then apply it. Undo restores the exact source text and filename.
 - `native-place.jsonfg` is a JSON-FG Core FeatureCollection with a root `coordRefSys`, an RFC 7946 geometry, and native `place` and `time` members. The globe and geometry metrics use only the RFC 7946 geometry. The Inspector identifies the CRS declaration without treating it as a geometry reprojection.
